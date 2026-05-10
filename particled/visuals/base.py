@@ -6,16 +6,25 @@ visualization styles must inherit from, along with shared helper functions
 for common rendering operations.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 import pygame
 
 from particled.config import Config
 
+if TYPE_CHECKING:
+    from particled.visuals.gl_renderer import GLRenderer
+
 
 class BaseVisualization(ABC):
     """Abstract base class defining the interface for particle visualizations.
+
+    Set ``BaseVisualization.gl_renderer`` to a :class:`GLRenderer` instance
+    before creating any visualization to enable GPU rendering for all subclasses.
 
     This class provides a common foundation for all visualization styles,
     offering shared utility methods for 3D projection, brightness computation,
@@ -52,6 +61,10 @@ class BaseVisualization(ABC):
         ...         self._render_points(surface, xs, ys, brightness, sizes)
 
     """
+
+    gl_renderer: ClassVar[GLRenderer | None] = None
+    """Shared GPU renderer. Set before instantiating visualizations to enable
+    OpenGL rendering for all subclasses. None = use pygame CPU path."""
 
     def __init__(self, cfg: Config):
         """Initialize the visualization with configuration.
@@ -193,6 +206,10 @@ class BaseVisualization(ABC):
             or view frustum culling for better performance.
 
         """
+        if self.gl_renderer is not None:
+            self.gl_renderer.render(xs, ys, brightness, sizes)
+            return
+
         cfg = self.cfg
 
         for px, py, b, s in zip(xs, ys, brightness, sizes, strict=True):

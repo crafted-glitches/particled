@@ -106,9 +106,10 @@ class Config:
     height: int = 1600
     fullscreen: bool = False
     fps: int = 60
+    use_gl: bool = False  # True = GPU rendering via ModernGL (Quadro M1000M)
 
     # ---------- Particles / geometry ----------
-    num_particles: int = 5500
+    num_particles: int = 7500
     base_radius: float = 2.2
     tube_radius: float = 0.9
     knot_mu: int = 2  # torus-knot parameters
@@ -128,15 +129,15 @@ class Config:
     audio_radius_scale: float = 0.65
     audio_distortion_scale: float = 0.8
     audio_rotation_boost: float = 0.35
-    audio_noise_threshold: float = 0.05  # Baseline noise level to ignore (0-1)
+    audio_noise_threshold: float = 0.02  # Baseline noise level to ignore (0-1)
 
     # ---------- Visual style ----------
     bg_color: tuple = (0, 0, 0)
     particle_color: tuple = (255, 255, 255)
     min_point_size: int = 1
     max_point_size: int = 4
-    fade_alpha: int = 25  # 0=no trails, 255=instant clear
-    brightness_gamma: float = 1.8
+    fade_alpha: int = 255  # 0=no trails, 255=instant clear
+    brightness_gamma: float = 3.0
 
     # ---------- Audio input ----------
     sample_rate: int = 44100
@@ -144,25 +145,25 @@ class Config:
     blocksize: int = 1024
 
     # ---------- Particle Cloud specific ----------
-    cloud_density_sigma: float = 1.0  # Gaussian spread (lower=denser center)
-    cloud_drift_speed: float = 0.1  # Particle drift speed
+    cloud_density_sigma: float = 0.9  # Gaussian spread (lower=denser center)
+    cloud_drift_speed: float = 1.0  # Particle drift speed
     cloud_breath_speed: float = 0.3  # Breathing animation speed
     cloud_drift_amplitude: float = 0.2  # Drift movement amplitude
     cloud_breath_amplitude: float = 0.15  # Breathing expansion amplitude
-    cloud_rotation_speed_y: float = 0.05  # Y-axis rotation speed
-    cloud_rotation_speed_x: float = 0.03  # X-axis rotation speed
+    cloud_rotation_speed_y: float = 0.08  # Y-axis rotation speed
+    cloud_rotation_speed_x: float = 0.05  # X-axis rotation speed
     cloud_audio_drift_boost: float = 0.3  # Audio influence on drift
     cloud_audio_breath_boost: float = 0.5  # Audio influence on breathing
     cloud_audio_size_boost: float = 0.3  # Audio influence on particle size
     cloud_density_falloff: float = 0.5  # Density-based size falloff rate
 
     # ---------- Gravitas mode specific ----------
-    gravitas_push_strength: float = 2.0  # Outward push force from audio (0-5)
-    gravitas_return_mechanic: str = "exponential"  # spring, linear, exponential
+    gravitas_push_strength: float = 3.5  # Outward push force from audio (0-5)
+    gravitas_return_mechanic: str = "spring"  # spring, linear, exponential
     # Spring mechanic parameters
-    gravitas_spring_strength: float = 0.5  # Spring force (0-2)
-    gravitas_spring_damping: float = 0.8  # Spring damping (0-1)
-    gravitas_spring_mass: float = 1.0  # Particle mass for spring (0.5-2)
+    gravitas_spring_strength: float = 2.0  # Spring force (0-2)
+    gravitas_spring_damping: float = 0.7  # Spring damping (0-1)
+    gravitas_spring_mass: float = 0.7  # Particle mass for spring (0.5-2)
     # Linear mechanic parameters
     gravitas_linear_return_speed: float = 0.3  # Return speed (0-1)
     gravitas_linear_damping_factor: float = 0.9  # Damping factor (0-1)

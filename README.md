@@ -25,6 +25,27 @@ Particled is a real-time particle visualization system that responds to micropho
 
 Requires Python 3.14+ and Poetry.
 
+### System dependencies
+
+**PortAudio** (required by `sounddevice` for microphone input):
+
+```bash
+# Ubuntu / Debian
+sudo apt install -y libportaudio2 portaudio19-dev
+
+# macOS
+brew install portaudio
+```
+
+**SDL2** (only needed if building `pygame-ce` from source — pre-built wheels are available for most platforms):
+
+```bash
+# Ubuntu / Debian
+sudo apt install -y libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
+```
+
+### Install
+
 ```bash
 # Clone the repository
 git clone https://github.com/crafted-glitches/particled.git

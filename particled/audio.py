@@ -56,38 +56,69 @@ class AudioMeter:
         self.level = 0.0
         self._lock = threading.Lock()
         self._stream = None
+        # Set by _calibrate(); used in _callback for noise subtraction & scaling.
+        self._noise_floor: float = 0.0
+        self._auto_gain: float = cfg.audio_gain
 
     def _callback(self, indata, frames, time_, status):
-        """Process incoming audio data from the microphone stream.
-
-        This callback runs in a separate thread managed by sounddevice. It computes
-        the RMS (Root Mean Square) level of the incoming audio, applies gain
-        amplification, and smooths the result using exponential moving average.
-
-        The smoothing formula: new_level = 0.85 * old_level + 0.15 * (rms * gain)
-        This creates a natural response that follows audio changes without jitter.
-
-        Args:
-            indata: Input audio data array from the microphone.
-            frames: Number of audio frames in this callback.
-            time_: Time information structure (unused).
-            status: Status flags indicating stream health (logged if present).
-
-        Note:
-            This method is called automatically by sounddevice and should not
-            be invoked directly.
-
-        """
+        """Process incoming audio data from the microphone stream."""
         if status:
-            # could log overruns here if you want
             pass
 
-        # RMS of the incoming audio block
-        rms = np.sqrt(np.mean(indata.astype(np.float32) ** 2)) + 1e-8
-        # Normalise and smooth a bit
-        value = min(rms * self.cfg.audio_gain, 1.5)
+        # AC-couple: subtract the block mean to remove hardware DC offset.
+        # Without this, a DC-biased mic (common on ALSA/PipeWire) produces an
+        # RMS of ~0.6 even in silence, drowning out the actual audio signal.
+        samples = indata.astype(np.float32)
+        samples -= samples.mean()
+        rms = float(np.sqrt(np.mean(samples ** 2)))
+        # Subtract ambient noise floor, then scale by auto_gain (calibrated so
+        # that a "loud" reference sound maps to ~1.0) and the user gain knob
+        # (audio_gain=50 is the neutral reference, matching original default).
+        above_noise = max(0.0, rms - self._noise_floor)
+        value = min(above_noise * self._auto_gain * (self.cfg.audio_gain / 50.0), 1.5)
         with self._lock:
             self.level = 0.85 * self.level + 0.15 * value
+
+    def _calibrate(self, device: int | None, samplerate: int) -> None:
+        """Sample ~0.5 s of audio to measure the ambient noise floor and set
+        ``_auto_gain`` so that typical loud sounds map to roughly 1.0."""
+        samples: list[float] = []
+        done = threading.Event()
+
+        def probe(indata, frames, t, status):
+            s = indata.astype(np.float32)
+            s -= s.mean()
+            rms = float(np.sqrt(np.mean(s ** 2)))
+            samples.append(rms)
+            if len(samples) >= 22:
+                done.set()
+
+        try:
+            with sd.InputStream(
+                device=device,
+                callback=probe,
+                channels=self.cfg.channels,
+                samplerate=samplerate,
+                blocksize=self.cfg.blocksize,
+            ):
+                done.wait(timeout=1.0)
+        except Exception:
+            return  # calibration failed; keep defaults
+
+        if not samples:
+            return
+
+        noise = float(np.percentile(samples, 20))   # low percentile = noise floor
+        peak = float(np.percentile(samples, 90))    # typical-loud reference
+
+        self._noise_floor = noise
+        reference = max(peak - noise, noise * 2, 1e-5)
+        # auto_gain maps (above-noise loud sound) → 1.0
+        self._auto_gain = min(1.0 / reference, 500.0)
+        print(
+            f"Audio: calibrated  noise_floor={noise:.5f}  "
+            f"peak_ref={peak:.5f}  auto_gain={self._auto_gain:.1f}"
+        )
 
     def start(self):
         """Start the audio input stream and begin monitoring.
@@ -108,13 +139,59 @@ class AudioMeter:
         if self._stream is not None:
             return
 
+        device, samplerate = self._choose_device()
+        if device is not None:
+            print(f"Audio: using device [{device}] {sd.query_devices(device)['name']} @ {samplerate} Hz")
+
+        self._calibrate(device, samplerate)
+
         self._stream = sd.InputStream(
+            device=device,
             callback=self._callback,
             channels=self.cfg.channels,
-            samplerate=self.cfg.sample_rate,
+            samplerate=samplerate,
             blocksize=self.cfg.blocksize,
         )
         self._stream.start()
+
+    @staticmethod
+    def _choose_device() -> tuple[int | None, int]:
+        """Pick the best available input device and its preferred sample rate.
+
+        On PipeWire systems the generic 'default' / 'pipewire' ALSA devices
+        often return silent data even when audio is present.  The named
+        ``alsa_input.*`` entries exposed by PipeWire work reliably.
+
+        Priority:
+          1. PipeWire ALSA input  (``alsa_input.*``)
+          2. Any non-monitor hardware input that isn't a virtual proxy
+          3. sounddevice default (``None``)
+
+        Returns:
+            Tuple of (device_index_or_None, sample_rate).
+        """
+        try:
+            devices = sd.query_devices()
+
+            # Priority 1: PipeWire-managed hardware input
+            for d in devices:
+                if d["max_input_channels"] > 0 and d["name"].startswith("alsa_input."):
+                    return d["index"], int(d["default_samplerate"])
+
+            # Priority 2: non-virtual, non-monitor hardware input
+            skip = {"default", "sysdefault", "pipewire", "pulse", "dmix", "dsnoop"}
+            for d in devices:
+                name_lower = d["name"].lower()
+                if (
+                    d["max_input_channels"] > 0
+                    and "monitor" not in name_lower
+                    and not any(s in name_lower for s in skip)
+                ):
+                    return d["index"], int(d["default_samplerate"])
+        except Exception:
+            pass
+
+        return None, 44100  # fall back to sounddevice default
 
     def stop(self):
         """Stop the audio input stream and release resources.
