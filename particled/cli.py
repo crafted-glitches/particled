@@ -460,7 +460,6 @@ def configure_impact() -> Config:
     """
     print("\n💥  Particle Cloud - Impact Mode Configuration\n")
 
-    num_particles = _prompt_num_particles(default=6700)
     density_sigma = _prompt_density_sigma(default=0.9)
     drift_speed = _prompt_drift_speed(default=1.0)
 
@@ -483,7 +482,6 @@ def configure_impact() -> Config:
     brightness_gamma = _prompt_brightness_gamma(default=3.0)
 
     cfg = Config()
-    cfg.num_particles = num_particles
     cfg.cloud_density_sigma = density_sigma
     cfg.cloud_drift_speed = drift_speed
     cfg.cloud_breath_speed = breath_speed
@@ -577,7 +575,6 @@ def configure_gravitas() -> Config:
     """
     print("\n⚛️  Particle Cloud - Gravitas Mode Configuration\n")
 
-    num_particles = _prompt_num_particles(default=7500)
     density_sigma = _prompt_density_sigma(default=0.9)
     drift_speed = _prompt_drift_speed(default=1.0)
     rotation_speed_y, rotation_speed_x = _prompt_rotation_speeds(
@@ -612,7 +609,6 @@ def configure_gravitas() -> Config:
     brightness_gamma = _prompt_brightness_gamma(default=3.0)
 
     cfg = Config()
-    cfg.num_particles = num_particles
     cfg.cloud_density_sigma = density_sigma
     cfg.cloud_drift_speed = drift_speed
     cfg.cloud_rotation_speed_y = rotation_speed_y
@@ -646,8 +642,6 @@ def configure_torus_knot() -> Config:
     """
     print("\n🌀 Torus Knot Configuration\n")
 
-    num_particles = _prompt_num_particles(default=5500)
-
     knot_mu = int(
         inquirer.number(
             message="Torus knot parameter μ (complexity):",
@@ -676,7 +670,6 @@ def configure_torus_knot() -> Config:
     brightness_gamma = _prompt_brightness_gamma(default=3.0)
 
     cfg = Config()
-    cfg.num_particles = num_particles
     cfg.knot_mu = knot_mu
     cfg.knot_nu = knot_nu
     cfg.base_rotation_speed_y = rotation_speed_y
@@ -696,8 +689,6 @@ def configure_penrose() -> Config:
 
     """
     print("\n🔺 Penrose Triangle Configuration\n")
-
-    num_particles = _prompt_num_particles(default=5500)
 
     triangle_scale = float(
         inquirer.number(
@@ -781,7 +772,6 @@ def configure_penrose() -> Config:
     brightness_gamma = _prompt_brightness_gamma(default=1.8)
 
     cfg = Config()
-    cfg.num_particles = num_particles
     cfg.penrose_triangle_scale = triangle_scale
     cfg.penrose_flow_speed = flow_speed
     cfg.penrose_fold_strength = fold_strength
@@ -803,19 +793,16 @@ def configure_interactively(style: str) -> tuple[Config, str | None]:
         style: Selected visualization style name.
 
     Returns:
-        Tuple of (configured Config object, sub-mode name or None).
+        Tuple of (default Config object, sub-mode name or None).
 
     """
     if style == "Particle Cloud":
         mode = get_particle_cloud_mode()
-        if mode == "Gravitas":
-            return configure_gravitas(), mode
-        else:
-            return configure_impact(), mode
+        return Config(), mode
     elif style == "Penrose":
-        return configure_penrose(), None
+        return Config(), None
     else:
-        return configure_torus_knot(), None
+        return Config(), None
 
 
 def prompt_for_interactive_config() -> bool:

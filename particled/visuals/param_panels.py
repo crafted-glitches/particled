@@ -14,7 +14,6 @@ from particled.visuals.overlay import OverlayPanel, SectionDef, SliderDef
 _COMMON = SectionDef(
     title="Common",
     sliders=[
-        SliderDef("Particles",        "num_particles",    100,   20000, 100,   "{:.0f}"),
         SliderDef("Fade / trails",    "fade_alpha",         0,     255,   1,   "{:.0f}"),
         SliderDef("Brightness gamma", "brightness_gamma",  0.5,   3.0,  0.05, "{:.2f}"),
         SliderDef("Audio gain",       "audio_gain",         0.0, 200.0,  1.0, "{:.1f}"),
@@ -105,7 +104,6 @@ def sections_for(style: str, mode: str | None) -> list[SectionDef]:
 # These mirror the -s / interactive flag defaults and are used by the Reset button.
 
 _DEFAULTS_GRAVITAS: dict[str, object] = {
-    "num_particles": 7500,
     "fade_alpha": 255,
     "brightness_gamma": 3.0,
     "audio_gain": 50.0,
@@ -130,7 +128,6 @@ _DEFAULTS_GRAVITAS: dict[str, object] = {
 }
 
 _DEFAULTS_IMPACT: dict[str, object] = {
-    "num_particles": 6700,
     "fade_alpha": 255,
     "brightness_gamma": 3.0,
     "audio_gain": 50.0,
@@ -146,7 +143,6 @@ _DEFAULTS_IMPACT: dict[str, object] = {
 }
 
 _DEFAULTS_TORUS: dict[str, object] = {
-    "num_particles": 5500,
     "fade_alpha": 255,
     "brightness_gamma": 3.0,
     "audio_gain": 50.0,
@@ -161,7 +157,6 @@ _DEFAULTS_TORUS: dict[str, object] = {
 }
 
 _DEFAULTS_PENROSE: dict[str, object] = {
-    "num_particles": 5500,
     "fade_alpha": 25,
     "brightness_gamma": 1.8,
     "audio_gain": 50.0,

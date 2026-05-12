@@ -102,11 +102,11 @@ class Config:
     """  # noqa: RUF002
 
     # ---------- Window ----------
-    width: int = 900  # change to your screen size
-    height: int = 1600
+    width: int = 1080  # change to your screen size
+    height: int = 1920
     fullscreen: bool = False
-    fps: int = 60
-    use_gl: bool = False  # True = GPU rendering via ModernGL (Quadro M1000M)
+    fps: int = 59
+    use_gl: bool = True  # True = GPU rendering via ModernGL (Quadro M1000M)
 
     # ---------- Particles / geometry ----------
     num_particles: int = 7500

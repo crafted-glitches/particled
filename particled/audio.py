@@ -1,5 +1,6 @@
 """Audio input processing and monitoring."""
 
+import collections
 import threading
 
 import numpy as np
@@ -59,6 +60,8 @@ class AudioMeter:
         # Set by _calibrate(); used in _callback for noise subtraction & scaling.
         self._noise_floor: float = 0.0
         self._auto_gain: float = cfg.audio_gain
+        # Rolling history of smoothed levels for the audio graph (audio-thread rate).
+        self._level_history: collections.deque = collections.deque(maxlen=240)
 
     def _callback(self, indata, frames, time_, status):
         """Process incoming audio data from the microphone stream."""
@@ -78,6 +81,7 @@ class AudioMeter:
         value = min(above_noise * self._auto_gain * (self.cfg.audio_gain / 50.0), 1.5)
         with self._lock:
             self.level = 0.85 * self.level + 0.15 * value
+            self._level_history.append(self.level)
 
     def _calibrate(self, device: int | None, samplerate: int) -> None:
         """Sample ~0.5 s of audio to measure the ambient noise floor and set
@@ -227,3 +231,14 @@ class AudioMeter:
         """
         with self._lock:
             return float(self.level)
+
+    def get_history(self) -> list[float]:
+        """Return a snapshot of the rolling level history (thread-safe).
+
+        Returns:
+            List of smoothed RMS levels (oldest first), up to 240 entries.
+            Each entry was recorded at approximately the audio callback rate
+            (~43 Hz for blocksize=1024 at 44100 Hz sample rate).
+        """
+        with self._lock:
+            return list(self._level_history)

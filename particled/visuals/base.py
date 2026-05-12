@@ -19,6 +19,27 @@ from particled.config import Config
 if TYPE_CHECKING:
     from particled.visuals.gl_renderer import GLRenderer
 
+# ── module-level caches (no per-frame allocation) ─────────────────────────────
+
+# Reused fade surface — recreated only when window is resized.
+_fade_surf: pygame.Surface | None = None
+_fade_surf_size: tuple[int, int] = (0, 0)
+
+# 256-entry grayscale lookup table mapping intensity → packed pixel value.
+# Built once on first render call; valid for the lifetime of the display surface
+# since the pixel format doesn't change between resizes.
+_gray_lut: np.ndarray | None = None
+
+
+def _get_gray_lut(surface: pygame.Surface) -> np.ndarray:
+    """Return (building if needed) the 256-entry grayscale → packed pixel LUT."""
+    global _gray_lut
+    if _gray_lut is None:
+        _gray_lut = np.array(
+            [surface.map_rgb(i, i, i) for i in range(256)], dtype=np.uint32
+        )
+    return _gray_lut
+
 
 class BaseVisualization(ABC):
     """Abstract base class defining the interface for particle visualizations.
@@ -211,12 +232,33 @@ class BaseVisualization(ABC):
             return
 
         cfg = self.cfg
+        w, h = cfg.width, cfg.height
 
-        for px, py, b, s in zip(xs, ys, brightness, sizes, strict=True):
-            if 0 <= px < cfg.width and 0 <= py < cfg.height:
+        int_sizes = np.maximum(np.round(sizes).astype(np.int32), 1)
+
+        # Vectorised visibility check — avoids a Python-level `if` per particle.
+        visible = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+
+        # Fast path: size-1 particles written directly into the pixel buffer via
+        # surfarray. Avoids 7000+ draw.circle calls/frame for the common case.
+        tiny_mask = visible & (int_sizes <= 1)
+        if tiny_mask.any():
+            lut = _get_gray_lut(surface)
+            intensities = np.clip(brightness[tiny_mask] * 255, 0, 255).astype(np.uint8)
+            px_arr = pygame.surfarray.pixels2d(surface)
+            px_arr[xs[tiny_mask].astype(np.int32), ys[tiny_mask].astype(np.int32)] = lut[intensities]
+            del px_arr  # release surface lock
+
+        # Slow path: larger circles — loop only over visible, non-tiny particles.
+        large_mask = visible & (int_sizes > 1)
+        if large_mask.any():
+            lxs = xs[large_mask].astype(np.int32)
+            lys = ys[large_mask].astype(np.int32)
+            lbr = brightness[large_mask]
+            lsz = int_sizes[large_mask]
+            for px, py, b, s in zip(lxs, lys, lbr, lsz):
                 intensity = int(255 * b)
-                color = (intensity, intensity, intensity)
-                pygame.draw.circle(surface, color, (int(px), int(py)), int(max(1, s)))
+                pygame.draw.circle(surface, (intensity, intensity, intensity), (int(px), int(py)), int(s))
 
 
 def fade_surface(surface: pygame.Surface, alpha: int):
@@ -253,6 +295,10 @@ def fade_surface(surface: pygame.Surface, alpha: int):
     """
     if alpha <= 0:
         return
-    fade = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
-    fade.fill((0, 0, 0, alpha))
-    surface.blit(fade, (0, 0))
+    global _fade_surf, _fade_surf_size
+    size = surface.get_size()
+    if _fade_surf is None or _fade_surf_size != size:
+        _fade_surf = pygame.Surface(size, pygame.SRCALPHA)
+        _fade_surf_size = size
+    _fade_surf.fill((0, 0, 0, alpha))
+    surface.blit(_fade_surf, (0, 0))

@@ -257,6 +257,19 @@ class OverlayPanel:
         self._mode_lt  = pygame.Rect(0, 0, 0, 0)
         self._mode_rt  = pygame.Rect(0, 0, 0, 0)
         self._reset_rect = pygame.Rect(0, 0, 0, 0)  # screen-space reset button
+        # User-adjustable panel height (None = auto from screen height)
+        self._user_panel_h: int | None = None
+        # Resize handle drag state
+        self._resize_dragging = False
+        self._resize_rect = pygame.Rect(0, 0, 0, 0)  # screen-space grab strip
+        # Scrollbar drag state
+        self._scrollbar_dragging = False
+        self._scrollbar_drag_start_y = 0
+        self._scrollbar_drag_start_scroll = 0
+        self._scrollbar_thumb_rect = pygame.Rect(0, 0, 0, 0)
+        # Cached rendered surfaces — rebuilt only when _dirty is True
+        self._cached_surf: pygame.Surface | None = None
+        self._inner_surf: pygame.Surface | None = None
 
     # ── style / mode ───────────────────────────────────────────────────────────
 
@@ -337,13 +350,19 @@ class OverlayPanel:
             y += 6
 
         total_h = y + _PAD
-        visible_h = min(total_h, screen_h - 40)
+        if self._user_panel_h is not None:
+            visible_h = max(100, min(total_h, self._user_panel_h))
+        else:
+            visible_h = min(total_h, screen_h - 40)
         self._panel_rect = pygame.Rect(10, 20, _PANEL_W, visible_h)
         self._max_scroll = max(0, total_h - visible_h)
         self._total_h = total_h
         # clamp focus index after section rebuild
         if self._sliders:
             self._focused = min(self._focused, len(self._sliders) - 1)
+        # Invalidate caches whenever layout changes
+        self._inner_surf = pygame.Surface((_PANEL_W, total_h), pygame.SRCALPHA)
+        self._cached_surf = None
         self._dirty = True
 
     def _ensure_built(self, screen: pygame.Surface):
@@ -374,6 +393,16 @@ class OverlayPanel:
             # Reset button
             if self._reset_rect.collidepoint(pos):
                 self._reset_to_defaults()
+                return True
+            # Resize handle (bottom strip of panel)
+            if self._resize_rect.collidepoint(pos):
+                self._resize_dragging = True
+                return True
+            # Scrollbar thumb
+            if self._scrollbar_thumb_rect.collidepoint(pos):
+                self._scrollbar_dragging = True
+                self._scrollbar_drag_start_y = pos[1]
+                self._scrollbar_drag_start_scroll = self._scroll
                 return True
             # Style / mode selector arrows (screen-space rects set during draw)
             if self._style_lt.collidepoint(pos):
@@ -406,10 +435,38 @@ class OverlayPanel:
                 self._drag_slider.stop_drag()
                 self._drag_slider = None
                 return True
+            if self._resize_dragging:
+                self._resize_dragging = False
+                return True
+            if self._scrollbar_dragging:
+                self._scrollbar_dragging = False
+                return True
 
         if event.type == pygame.MOUSEMOTION:
             if self._drag_slider and self._drag_slider.dragging:
                 self._drag_slider.drag_to(event.pos[0], self._panel_rect.x)
+                self._dirty = True
+                return True
+            if self._resize_dragging:
+                new_h = max(100, event.pos[1] - self._panel_rect.y)
+                self._user_panel_h = new_h
+                self._build(screen.get_height())
+                self._dirty = True
+                return True
+            if self._scrollbar_dragging:
+                pr = self._panel_rect
+                track_h = pr.height - self._title_band_h
+                thumb_h = self._scrollbar_thumb_rect.height
+                travel = track_h - thumb_h
+                if travel > 0:
+                    dy = event.pos[1] - self._scrollbar_drag_start_y
+                    self._scroll = max(
+                        0,
+                        min(
+                            self._max_scroll,
+                            self._scrollbar_drag_start_scroll + int(dy * self._max_scroll / travel),
+                        ),
+                    )
                 self._dirty = True
                 return True
 
@@ -471,13 +528,28 @@ class OverlayPanel:
         rt_rect = pygame.Rect(pr.x + rt_x - 4, pr.y + py, _SEL_ARR_W + 8, _SEL_H)
         return lt_rect, rt_rect
 
-    def draw(self, screen: pygame.Surface):
+    def draw(self, screen: pygame.Surface, dest: pygame.Surface | None = None):
+        """Draw the overlay panel.
+
+        Args:
+            screen: The display surface. Used only for sizing / hit-rect
+                    conversion. In OpenGL mode pass the real screen here.
+            dest: Surface to blit the panel onto. Defaults to ``screen``.
+                  In OpenGL mode pass a separate SRCALPHA surface here so the
+                  panel is not blitted to the GL framebuffer directly.
+        """
         if not self.visible:
             return
         self._ensure_built(screen)
         self._init_fonts()
-
+        blit_target = dest if dest is not None else screen
         pr = self._panel_rect
+
+        # Fast path: nothing changed since last draw — reuse cached surface
+        if not self._dirty and self._cached_surf is not None:
+            blit_target.blit(self._cached_surf, pr.topleft)
+            return
+
         clip_surf = pygame.Surface((pr.width, pr.height), pygame.SRCALPHA)
         clip_surf.fill(_BG)
 
@@ -525,8 +597,8 @@ class OverlayPanel:
         div_y = sel_y + 3
         pygame.draw.line(clip_surf, _SECTION, (_PAD, div_y), (_PANEL_W - _PAD, div_y))
 
-        # Scrollable inner surface
-        inner = pygame.Surface((_PANEL_W, self._total_h), pygame.SRCALPHA)
+        # Scrollable inner surface — reuse pre-allocated buffer
+        inner = self._inner_surf
         inner.fill((0, 0, 0, 0))
 
         y_cursor = self._title_band_h
@@ -555,5 +627,213 @@ class OverlayPanel:
             (0, self._scroll, pr.width, pr.height - title_band),
         )
 
+        # ── scrollbar ──────────────────────────────────────────────────────────
+        if self._max_scroll > 0:
+            sb_x = _PANEL_W - 7
+            track_top = title_band
+            track_h = pr.height - track_top
+            visible_ratio = (pr.height - title_band) / max(self._total_h, 1)
+            thumb_h = max(20, int(track_h * visible_ratio))
+            scroll_frac = self._scroll / self._max_scroll
+            thumb_y = track_top + int(scroll_frac * (track_h - thumb_h))
+            pygame.draw.rect(clip_surf, (40, 40, 55), (sb_x, track_top, 6, track_h))
+            pygame.draw.rect(
+                clip_surf, (130, 130, 160),
+                (sb_x, thumb_y, 6, thumb_h),
+                border_radius=3,
+            )
+            # Store screen-space thumb rect for drag detection
+            self._scrollbar_thumb_rect = pygame.Rect(
+                pr.x + sb_x, pr.y + thumb_y, 6, thumb_h
+            )
+        else:
+            self._scrollbar_thumb_rect = pygame.Rect(0, 0, 0, 0)
+
+        # ── resize handle (bottom grip) ────────────────────────────────────────
+        grip_y = pr.height - 8
+        cx = _PANEL_W // 2
+        for i in range(-2, 3):
+            dot_x = cx + i * 7
+            pygame.draw.circle(clip_surf, (90, 90, 110), (dot_x, grip_y), 2)
+        # Store screen-space resize rect for event detection
+        self._resize_rect = pygame.Rect(pr.x, pr.bottom - 12, pr.width, 12)
+
         pygame.draw.rect(clip_surf, (80, 80, 100), clip_surf.get_rect(), 1, border_radius=6)
-        screen.blit(clip_surf, pr.topleft)
+
+        # Cache the rendered surface; mark clean
+        self._cached_surf = clip_surf
+        self._dirty = False
+        blit_target.blit(clip_surf, pr.topleft)
+
+
+# ── AudioGraph ─────────────────────────────────────────────────────────────────
+
+# Layout constants
+_AG_PAD_X    = 10
+_AG_PAD_Y    = 8
+_AG_TITLE_H  = 18    # title row height
+_AG_W        = 210   # waveform area width
+_AG_H        = 80    # waveform area height
+_AG_BAR_GAP  = 4     # gap between waveform and level bar
+_AG_BAR_W    = 8     # current-level bar width
+_AG_PANEL_W  = _AG_PAD_X + _AG_W + _AG_BAR_GAP + _AG_BAR_W + _AG_PAD_X   # 242
+_AG_PANEL_H  = _AG_PAD_Y + _AG_TITLE_H + _AG_H + _AG_PAD_Y               # 114
+_AG_MAX_LEVEL = 1.5  # clamp ceiling that matches AudioMeter._callback
+
+
+class AudioGraph:
+    """Floating mini-panel showing real-time audio level history.
+
+    Displays a scrolling waveform of the smoothed RMS level, a horizontal
+    line for the noise threshold, a reference line at 1.0, and a vertical
+    bar for the instantaneous level.  Toggle visibility with **G**.
+
+    Args:
+        meter: The running :class:`~particled.audio.AudioMeter` instance.
+        cfg:   Config object (reads ``audio_noise_threshold`` and
+               ``audio_gain`` live).
+    """
+
+    def __init__(self, meter: Any, cfg: Any):
+        self._meter = meter
+        self._cfg = cfg
+        self.visible = True
+        self._font: pygame.font.Font | None = None
+        self._small_font: pygame.font.Font | None = None
+        # Pre-allocated panel surface — reused every frame to avoid per-frame allocation
+        self._panel_surf: pygame.Surface | None = None
+        # Optional GL renderer — set via set_gl(); enables GPU waveform path
+        self._gl: Any = None
+
+    def set_gl(self, gl: Any) -> None:
+        """Attach a GLRenderer; switches waveform drawing to GPU path.
+
+        When set, draw() issues GL geometry calls directly instead of
+        blitting to a pygame surface, eliminating the tobytes upload cost
+        for the waveform area entirely.
+        """
+        self._gl = gl
+
+    def _init_fonts(self):
+        if self._font is None:
+            self._font = _load_font(_FONT_SZ)
+            self._small_font = _load_font(_HEAD_SZ)
+
+    def handle_event(self, event: pygame.event.Event, screen: pygame.Surface) -> bool:
+        """Toggle the graph with G; returns True if the event was consumed."""
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_g:
+            self.visible = not self.visible
+            return True
+        return False
+
+    def draw(self, screen: pygame.Surface, dest: pygame.Surface | None = None):
+        """Render the audio graph panel.
+
+        Args:
+            screen: The display surface (used for positioning).
+            dest:   Surface to blit onto; defaults to ``screen``.  Pass a
+                    separate SRCALPHA surface in OpenGL mode.
+        """
+        if not self.visible:
+            return
+
+        sw, _sh = screen.get_size()
+        px = sw - _AG_PANEL_W - 10
+        py = 20
+
+        # ── GPU path: draw everything as GL geometry, no pygame surface ───────────
+        if self._gl is not None:
+            self._gl.draw_audio_graph(
+                self._meter.get_history(),
+                self._cfg.audio_noise_threshold,
+                self._meter.get_level(),
+                px, py,
+            )
+            return
+
+        # ── CPU / pygame path (non-GL mode) ──────────────────────────────────
+        self._init_fonts()
+        blit_target = dest if dest is not None else screen
+
+        # Reuse the pre-allocated surface; allocate only on the first call
+        if self._panel_surf is None:
+            self._panel_surf = pygame.Surface((_AG_PANEL_W, _AG_PANEL_H), pygame.SRCALPHA)
+        panel = self._panel_surf
+        panel.fill(_BG)
+
+        cfg = self._cfg
+
+        # ── title row ──────────────────────────────────────────────────────────
+        title_txt = (
+            f"Audio  gain:{cfg.audio_gain:.0f}"
+            f"  thr:{cfg.audio_noise_threshold:.3f}"
+            f"  [G]"
+        )
+        title_surf = self._small_font.render(title_txt, True, _HEADER)
+        panel.blit(title_surf, (_AG_PAD_X, _AG_PAD_Y))
+
+        # ── graph area ─────────────────────────────────────────────────────────
+        gx = _AG_PAD_X
+        gy = _AG_PAD_Y + _AG_TITLE_H
+        pygame.draw.rect(panel, (20, 20, 30), (gx, gy, _AG_W, _AG_H))
+
+        # ── reference line at 1.0 (dim) ────────────────────────────────────────
+        ref_y = gy + _AG_H - 1 - int((1.0 / _AG_MAX_LEVEL) * (_AG_H - 2))
+        pygame.draw.line(panel, (50, 50, 70), (gx, ref_y), (gx + _AG_W - 1, ref_y), 1)
+
+        # ── waveform ───────────────────────────────────────────────────────────
+        history = self._meter.get_history()
+        n = len(history)
+        if n >= _AG_W:
+            samples = history[n - _AG_W:]
+        else:
+            samples = [0.0] * (_AG_W - n) + history
+
+        # filled bars
+        for i, level in enumerate(samples):
+            bar_h = int(min(level / _AG_MAX_LEVEL, 1.0) * (_AG_H - 1))
+            if bar_h > 0:
+                pygame.draw.line(
+                    panel, (40, 90, 160),
+                    (gx + i, gy + _AG_H - 1 - bar_h),
+                    (gx + i, gy + _AG_H - 1),
+                )
+
+        # bright edge line on top of bars
+        edge_pts = [
+            (gx + i, gy + _AG_H - 1 - int(min(lv / _AG_MAX_LEVEL, 1.0) * (_AG_H - 2)))
+            for i, lv in enumerate(samples)
+        ]
+        if len(edge_pts) > 1:
+            pygame.draw.lines(panel, (120, 200, 255), False, edge_pts, 1)
+
+        # ── noise threshold line (orange) ──────────────────────────────────────
+        thr = cfg.audio_noise_threshold
+        thr_y = gy + _AG_H - 1 - int(min(thr / _AG_MAX_LEVEL, 1.0) * (_AG_H - 2))
+        pygame.draw.line(panel, (220, 150, 40), (gx, thr_y), (gx + _AG_W - 1, thr_y), 1)
+        thr_lbl = self._small_font.render("thr", True, (220, 150, 40))
+        panel.blit(thr_lbl, (gx + 2, thr_y - thr_lbl.get_height() - 1))
+
+        # ── graph border ───────────────────────────────────────────────────────
+        pygame.draw.rect(panel, (60, 60, 80), (gx, gy, _AG_W, _AG_H), 1)
+
+        # ── instantaneous level bar (right of graph) ───────────────────────────
+        current = self._meter.get_level()
+        bx = gx + _AG_W + _AG_BAR_GAP
+        pygame.draw.rect(panel, (30, 30, 40), (bx, gy, _AG_BAR_W, _AG_H))
+        bar_fill = int(min(current / _AG_MAX_LEVEL, 1.0) * (_AG_H - 1))
+        bar_col = (60, 220, 100) if current > thr else (80, 80, 90)
+        if bar_fill > 0:
+            pygame.draw.rect(
+                panel, bar_col,
+                (bx, gy + _AG_H - bar_fill, _AG_BAR_W, bar_fill),
+            )
+        # threshold tick on bar
+        bar_thr_y = gy + _AG_H - 1 - int(min(thr / _AG_MAX_LEVEL, 1.0) * (_AG_H - 2))
+        pygame.draw.line(panel, (220, 150, 40), (bx, bar_thr_y), (bx + _AG_BAR_W - 1, bar_thr_y), 1)
+        pygame.draw.rect(panel, (60, 60, 80), (bx, gy, _AG_BAR_W, _AG_H), 1)
+
+        # ── panel border ───────────────────────────────────────────────────────
+        pygame.draw.rect(panel, (80, 80, 100), panel.get_rect(), 1, border_radius=4)
+
+        blit_target.blit(panel, (px, py))

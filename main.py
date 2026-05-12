@@ -10,6 +10,11 @@ import os
 # Disable pygame welcome message
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
+# Route OpenGL to the discrete NVIDIA GPU on PRIME/Optimus systems.
+# Has no effect on single-GPU machines or when already on the correct GPU.
+os.environ.setdefault("__NV_PRIME_RENDER_OFFLOAD", "1")
+os.environ.setdefault("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
+
 import pygame
 
 from particled.audio import AudioMeter
@@ -26,6 +31,7 @@ from particled.visuals import (
     TorusKnotField,
     fade_surface,
 )
+from particled.visuals.overlay import AudioGraph
 from particled.visuals.param_panels import build_overlay
 
 
@@ -72,9 +78,13 @@ def main():
         ctx = moderngl.create_context()
         gl = GLRenderer(ctx, cfg.width, cfg.height)
         BaseVisualization.gl_renderer = gl
+        # Separate SRCALPHA surface for the overlay so we never blit pygame 2-D
+        # content to the OpenGL framebuffer directly (that corrupts the scene).
+        overlay_surf = pygame.Surface((cfg.width, cfg.height), pygame.SRCALPHA)
     else:
         screen = pygame.display.set_mode((cfg.width, cfg.height), flags)
         gl = None
+        overlay_surf = None
 
     # Set window caption with mode if applicable
     caption = f"Audio Reactive Particles - {style}"
@@ -93,6 +103,13 @@ def main():
     _last_num_particles = cfg.num_particles
 
     overlay = build_overlay(cfg, style, mode)
+    audio_graph = AudioGraph(audio_meter, cfg)
+    if cfg.use_gl:
+        audio_graph.set_gl(gl)
+    # Track whether overlay_surf needs a fresh fill+draw+composite.
+    # In GL mode the audio graph is drawn directly to the framebuffer so
+    # overlay_surf only changes when the params panel is dirty.
+    _overlay_surf_dirty = True  # force composite on first frame
 
     try:
         audio_meter.start()
@@ -115,6 +132,8 @@ def main():
         for event in pygame.event.get():
             if overlay.handle_event(event, screen):
                 continue
+            if audio_graph.handle_event(event, screen):
+                continue
             if event.type == pygame.QUIT or (
                 event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE
             ):
@@ -124,6 +143,8 @@ def main():
                 cfg.height = event.h
                 if cfg.use_gl:
                     gl.resize(event.w, event.h)
+                    overlay_surf = pygame.Surface((event.w, event.h), pygame.SRCALPHA)
+                    _overlay_surf_dirty = True
                 else:
                     screen = pygame.display.set_mode((cfg.width, cfg.height), flags)
                     screen.fill(cfg.bg_color)
@@ -133,6 +154,7 @@ def main():
         if overlay.consume_changed():
             field = _make_field(overlay.style, overlay.mode, cfg)
             _last_num_particles = cfg.num_particles
+            _overlay_surf_dirty = True
 
         # Rebuild field when num_particles slider changes (baked at init)
         if cfg.num_particles != _last_num_particles:
@@ -150,7 +172,23 @@ def main():
         field.draw(screen, t, audio_level)
 
         # overlay (Tab to toggle)
-        overlay.draw(screen)
+        if cfg.use_gl:
+            # Only redo the expensive fill+tobytes+composite when the params
+            # panel actually changed.  The audio graph draws to the framebuffer
+            # directly (no overlay_surf involvement) so it never forces a re-upload.
+            if overlay._dirty or _overlay_surf_dirty:
+                overlay_surf.fill((0, 0, 0, 0))
+                overlay.draw(screen, dest=overlay_surf)
+                gl.composite_surface(overlay_surf)
+                _overlay_surf_dirty = False
+            else:
+                # Panel unchanged: re-composite the existing texture as-is.
+                overlay.draw(screen, dest=overlay_surf)  # fast cache blit
+                gl.composite_surface(overlay_surf)
+            audio_graph.draw(screen)  # GPU path: direct GL draw, no surface
+        else:
+            overlay.draw(screen)
+            audio_graph.draw(screen)
 
         pygame.display.flip()
 
