@@ -437,6 +437,44 @@ def get_visualization_style() -> str:
     ).execute()
 
 
+def choose_display() -> int:
+    """Interactively select which monitor to use for fullscreen.
+
+    Queries GLFW for available monitors and presents them as a numbered
+    list.  Returns the GLFW monitor index (0-based) for the chosen monitor.
+
+    Returns:
+        GLFW monitor index of the selected monitor.
+
+    """
+    import glfw
+    if not glfw.init():
+        return 0
+    monitors = glfw.get_monitors()
+    n = len(monitors)
+    choices = []
+    for i, m in enumerate(monitors):
+        vm = glfw.get_video_mode(m)
+        if vm is not None:
+            w, h = vm.size.width, vm.size.height
+            # get_video_mode() returns raw scan-out dims; on compositor-rotated
+            # portrait displays those are swapped vs the actual framebuffer.
+            # Show both so the user can identify the display, but skip the
+            # orientation label since it may be misleading.
+            choices.append({"name": f"Display {i + 1}  {w}×{h}", "value": i})
+        else:
+            choices.append({"name": f"Display {i + 1}", "value": i})
+    # Don't terminate GLFW here — main() will re-use the existing init.
+
+    if n == 1:
+        return 0  # nothing to choose
+
+    return inquirer.select(
+        message="Select display for fullscreen:",
+        choices=choices,
+    ).execute()
+
+
 def get_particle_cloud_mode() -> str:
     """Prompt user to select Particle Cloud sub-mode.
 

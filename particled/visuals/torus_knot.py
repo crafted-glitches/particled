@@ -3,7 +3,6 @@
 import math
 
 import numpy as np
-import pygame
 
 from particled.config import Config
 from particled.visuals.base import BaseVisualization
@@ -147,7 +146,7 @@ class TorusKnotField(BaseVisualization):
             cfg.min_point_size + (cfg.max_point_size - cfg.min_point_size) * brightness
         )
 
-    def draw(self, surface: pygame.Surface, t: float, audio_level: float):
+    def draw(self, surface, t: float, audio_level: float, audio_bands: tuple[float, float, float] | None = None):
         """Orchestrate all rendering steps and draw the torus knot.
 
         Args:

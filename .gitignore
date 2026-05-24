@@ -211,3 +211,6 @@ __marimo__/
 
 # JSON files
 *.json
+
+logs/
+logs/*

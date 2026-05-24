@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
-import pygame
+from particled import compat as pygame
 
 from particled.config import Config
 
@@ -103,7 +103,7 @@ class BaseVisualization(ABC):
         self.cfg = cfg
 
     @abstractmethod
-    def draw(self, surface: pygame.Surface, t: float, audio_level: float):
+    def draw(self, surface: pygame.Surface, t: float, audio_level: float, audio_bands: tuple[float, float, float] | None = None):
         """Render the visualization to pygame surface.
 
         Must be implemented by subclasses.
@@ -156,7 +156,7 @@ class BaseVisualization(ABC):
         """
         cfg = self.cfg
 
-        z += cfg.z_offset
+        z = z + cfg.z_offset  # new array — do not mutate caller's z
         scale = cfg.fov / (cfg.fov + z)
 
         xs = cfg.width * 0.5 + x * scale * cfg.pixel_scale

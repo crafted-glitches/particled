@@ -42,7 +42,7 @@ class AudioMeter:
 
     """
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, _run_log=None):
         """Initialize the audio meter with configuration.
 
         Sets up the audio processing system with thread-safe level tracking.
@@ -51,9 +51,11 @@ class AudioMeter:
         Args:
             cfg: Configuration object containing audio parameters including
                 sample_rate, channels, blocksize, and audio_gain.
+            _run_log: Optional RunLogger instance for structured logging.
 
         """
         self.cfg = cfg
+        self._log = _run_log
         self.level = 0.0
         self._lock = threading.Lock()
         self._stream = None
@@ -62,6 +64,21 @@ class AudioMeter:
         self._auto_gain: float = cfg.audio_gain
         # Rolling history of smoothed levels for the audio graph (audio-thread rate).
         self._level_history: collections.deque = collections.deque(maxlen=240)
+        # Per-band rolling histories for the multi-band graph
+        self._bass_history:   collections.deque = collections.deque(maxlen=240)
+        self._mid_history:    collections.deque = collections.deque(maxlen=240)
+        self._treble_history: collections.deque = collections.deque(maxlen=240)
+        # Per-band RMS levels (smoothed, updated in _callback via FFT)
+        self._bass_level: float = 0.0
+        self._mid_level: float = 0.0
+        self._treble_level: float = 0.0
+        # FFT bin slices per band — set in start() once samplerate is known
+        self._bass_slice: slice = slice(0, 1)
+        self._mid_slice: slice = slice(0, 1)
+        self._treble_slice: slice = slice(0, 1)
+        # Analysis window (Hanning) — set in start(); reduces spectral leakage
+        # so bass energy doesn’t bleed into mid/treble bins.
+        self._fft_window: np.ndarray | None = None
 
     def _callback(self, indata, frames, time_, status):
         """Process incoming audio data from the microphone stream."""
@@ -74,14 +91,37 @@ class AudioMeter:
         samples = indata.astype(np.float32)
         samples -= samples.mean()
         rms = float(np.sqrt(np.mean(samples ** 2)))
-        # Subtract ambient noise floor, then scale by auto_gain (calibrated so
-        # that a "loud" reference sound maps to ~1.0) and the user gain knob
-        # (audio_gain=50 is the neutral reference, matching original default).
+        gain_factor = self._auto_gain * (self.cfg.audio_gain / 50.0)
         above_noise = max(0.0, rms - self._noise_floor)
-        value = min(above_noise * self._auto_gain * (self.cfg.audio_gain / 50.0), 1.5)
+        value = min(above_noise * gain_factor, 1.5)
+
+        # FFT band levels — collapse to mono then compute per-band RMS.
+        # Parseval: band_rms = sqrt(2 * sum(|X[k]|²)) / N
+        # (×2 for single-sided spectrum; DC bin is excluded from all slices)
+        mono = samples[:, 0] if samples.ndim == 2 else samples
+        N = len(mono)
+        win = self._fft_window
+        windowed = mono * win[:N] if (win is not None and len(win) >= N) else mono
+        fft_mag = np.abs(np.fft.rfft(windowed))
+
+        def _brms(s: slice) -> float:
+            v = fft_mag[s]
+            return float(np.sqrt(2.0 * np.dot(v, v))) / N
+
+        bass_v   = min(_brms(self._bass_slice)   * gain_factor, 1.5)
+        mid_v    = min(_brms(self._mid_slice)    * gain_factor, 1.5)
+        treble_v = min(_brms(self._treble_slice) * gain_factor, 1.5)
+
         with self._lock:
             self.level = 0.85 * self.level + 0.15 * value
+            # Bass smoothed slowly (more inertia), treble faster (transients)
+            self._bass_level   = 0.80 * self._bass_level   + 0.20 * bass_v
+            self._mid_level    = 0.85 * self._mid_level    + 0.15 * mid_v
+            self._treble_level = 0.88 * self._treble_level + 0.12 * treble_v
             self._level_history.append(self.level)
+            self._bass_history.append(self._bass_level)
+            self._mid_history.append(self._mid_level)
+            self._treble_history.append(self._treble_level)
 
     def _calibrate(self, device: int | None, samplerate: int) -> None:
         """Sample ~0.5 s of audio to measure the ambient noise floor and set
@@ -119,10 +159,13 @@ class AudioMeter:
         reference = max(peak - noise, noise * 2, 1e-5)
         # auto_gain maps (above-noise loud sound) → 1.0
         self._auto_gain = min(1.0 / reference, 500.0)
-        print(
+        msg = (
             f"Audio: calibrated  noise_floor={noise:.5f}  "
             f"peak_ref={peak:.5f}  auto_gain={self._auto_gain:.1f}"
         )
+        print(msg)
+        if self._log is not None:
+            self._log.log_audio_calibration(noise, peak, self._auto_gain)
 
     def start(self):
         """Start the audio input stream and begin monitoring.
@@ -144,8 +187,27 @@ class AudioMeter:
             return
 
         device, samplerate = self._choose_device()
+
+        # Compute FFT band slices now that samplerate is known.
+        # rfft output has blocksize//2+1 bins; bin k → frequency k*sr/blocksize.
+        n_fft  = self.cfg.blocksize
+        n_bins = n_fft // 2 + 1
+        bass_hi   = min(int(250  * n_fft / samplerate) + 1, n_bins)
+        mid_hi    = min(int(2000 * n_fft / samplerate) + 1, n_bins)
+        treble_hi = min(int(8000 * n_fft / samplerate) + 1, n_bins)
+        self._bass_slice   = slice(1, bass_hi)         # ~20–250 Hz  (skip DC bin 0)
+        self._mid_slice    = slice(bass_hi, mid_hi)    # ~250–2000 Hz
+        self._treble_slice = slice(mid_hi, treble_hi)  # ~2000–8000 Hz
+
+        # Precompute Hanning analysis window sized to the callback block.
+        self._fft_window = np.hanning(n_fft).astype("f4")
+
         if device is not None:
-            print(f"Audio: using device [{device}] {sd.query_devices(device)['name']} @ {samplerate} Hz")
+            dev_name = sd.query_devices(device)['name']
+            msg = f"using device [{device}] {dev_name} @ {samplerate} Hz"
+            print(f"Audio: {msg}")
+            if self._log is not None:
+                self._log.log_audio_device(msg)
 
         self._calibrate(device, samplerate)
 
@@ -232,6 +294,20 @@ class AudioMeter:
         with self._lock:
             return float(self.level)
 
+    def get_band_levels(self) -> tuple[float, float, float]:
+        """Return the current smoothed (bass, mid, treble) RMS levels (thread-safe).
+
+        Returns:
+            Tuple of (bass, mid, treble) levels, each in range 0.0–1.5.
+            Bass covers ~20–250 Hz, mid ~250–2000 Hz, treble ~2000–8000 Hz.
+        """
+        with self._lock:
+            return (
+                float(self._bass_level),
+                float(self._mid_level),
+                float(self._treble_level),
+            )
+
     def get_history(self) -> list[float]:
         """Return a snapshot of the rolling level history (thread-safe).
 
@@ -242,3 +318,17 @@ class AudioMeter:
         """
         with self._lock:
             return list(self._level_history)
+
+    def get_band_histories(self) -> tuple[list[float], list[float], list[float]]:
+        """Return rolling history snapshots for bass, mid, and treble (thread-safe).
+
+        Returns:
+            Tuple of (bass_history, mid_history, treble_history), each a list
+            of smoothed levels (oldest first), up to 240 entries.
+        """
+        with self._lock:
+            return (
+                list(self._bass_history),
+                list(self._mid_history),
+                list(self._treble_history),
+            )

@@ -236,6 +236,9 @@ class GLRenderer:
             self._prog,
             [(self._vbo, "2f 1f 1f", "in_position", "in_brightness", "in_size")],
         )
+        # Pre-allocated CPU-side interleaved buffer [x, y, brightness, size].
+        # Avoids per-frame np.column_stack allocation and .tobytes() copy.
+        self._upload_buf = np.empty((self._INITIAL_CAPACITY, 4), dtype="f4")
 
         # --- fade pipeline (full-screen quad, TRIANGLE_STRIP) ---
         self._fade_prog = ctx.program(
@@ -279,6 +282,14 @@ class GLRenderer:
             self._g2d_prog,
             [(self._g2d_vbo, "2f 4f", "in_pos", "in_col")],
         )
+
+        # Set the GL viewport explicitly.  Without this, the viewport inherits
+        # the raw window creation size (e.g. 1920×1200 from get_video_mode()),
+        # which differs from the corrected framebuffer size on rotated displays
+        # (e.g. 1200×1920).  In windowed mode a VIDEORESIZE fires immediately
+        # and calls resize(), hiding the bug.  In fullscreen mode no resize
+        # event fires, so the wrong viewport would persist for the entire run.
+        ctx.viewport = (0, 0, width, height)
 
     def resize(self, width: int, height: int) -> None:
         """Update viewport and projection uniform after a window resize.
@@ -328,17 +339,23 @@ class GLRenderer:
             sizes: Per-particle radius in pixels.
 
         """
-        data = np.column_stack([
-            xs.astype("f4"),
-            ys.astype("f4"),
-            brightness.astype("f4"),
-            sizes.astype("f4"),
-        ])
-        n_bytes = data.nbytes
+        n = len(xs)
+        # Grow the pre-allocated buffer only when particle count increases
+        # (rare — only when the user changes num_particles via the slider).
+        if n > len(self._upload_buf):
+            self._upload_buf = np.empty((n * 2, 4), dtype="f4")
+        buf = self._upload_buf[:n]
+        buf[:, 0] = xs
+        buf[:, 1] = ys
+        buf[:, 2] = brightness
+        buf[:, 3] = sizes
+        n_bytes = buf.nbytes
         if n_bytes > self._vbo.size:
             self._vbo.orphan(n_bytes)
-        self._vbo.write(data.tobytes())
-        self._vao.render(moderngl.POINTS, vertices=len(xs))
+        # buf is a C-contiguous f4 ndarray; moderngl accepts any buffer-protocol
+        # object directly, avoiding a redundant .tobytes() copy.
+        self._vbo.write(buf)
+        self._vao.render(moderngl.POINTS, vertices=n)
 
     def composite_surface(self, surf: "pygame.Surface") -> None:
         """Composite a pygame SRCALPHA surface as a GL texture overlay.
@@ -349,12 +366,10 @@ class GLRenderer:
         size hasn't changed since the last call.
 
         Args:
-            surf: A pygame.SRCALPHA surface the same size as the window.
+            surf: A compat.Surface (PIL-backed) the same size as the window.
                   Transparent areas (alpha=0) show the underlying GL scene.
 
         """
-        import pygame
-
         w, h = surf.get_size()
         if self._overlay_tex is None or self._overlay_tex_size != (w, h):
             if self._overlay_tex is not None:
@@ -363,8 +378,21 @@ class GLRenderer:
             self._overlay_tex.filter = moderngl.NEAREST, moderngl.NEAREST
             self._overlay_tex_size = (w, h)
 
-        # tobytes with flip=False; Y-flip is handled in the overlay vertex shader.
-        self._overlay_tex.write(pygame.image.tobytes(surf, "RGBA", False))
+        # tobytes() returns raw RGBA bytes, top-to-bottom — same layout
+        # as pygame.image.tobytes(surf, "RGBA", False) that this replaces.
+        self._overlay_tex.write(surf.tobytes())
+        self._overlay_tex.use(0)
+        self._overlay_vao.render(moderngl.TRIANGLE_STRIP)
+
+    def composite_cached(self) -> None:
+        """Re-render the overlay from the cached GL texture without re-upload.
+
+        Call this every frame when the overlay panel hasn't changed — avoids
+        the ~8 MB PIL alpha_composite + tobytes() + GPU texture write that
+        composite_surface() performs.
+        """
+        if self._overlay_tex is None:
+            return
         self._overlay_tex.use(0)
         self._overlay_vao.render(moderngl.TRIANGLE_STRIP)
 
@@ -395,6 +423,8 @@ class GLRenderer:
         pad_y: int = 8,
         title_h: int = 18,
         max_level: float = 1.5,
+        band_histories: tuple[list[float], list[float], list[float]] | None = None,
+        band_levels: tuple[float, float, float] | None = None,
     ) -> None:
         """Draw the audio graph panel directly to the GL framebuffer.
 
@@ -444,30 +474,46 @@ class GLRenderer:
             moderngl.LINES,
         )
 
-        # Waveform: filled area (TRIANGLE_STRIP) + edge (LINE_STRIP)
-        n = len(history)
-        if n >= gw:
-            samples = history[n - gw:]
+        # Waveform: 3 overlaid coloured bands (or fall back to single broadband)
+        _BAND_FILL = [
+            (c(100), c(40),  c(40),  0.7),   # bass  — red
+            (c(40),  c(100), c(40),  0.7),   # mid   — green
+            (c(40),  c(60),  c(130), 0.7),   # treble — blue
+        ]
+        _BAND_EDGE = [
+            (c(220), c(80),  c(80),  1.0),
+            (c(80),  c(220), c(80),  1.0),
+            (c(80),  c(140), c(255), 1.0),
+        ]
+        if band_histories is not None:
+            band_data = list(band_histories)
         else:
-            samples = [0.0] * (gw - n) + history
+            band_data = [history, history, history]  # fallback: all same
 
-        fill: list[float] = []
-        edge: list[float] = []
-        fr, fg, fb = c(40), c(90), c(160)
-        er, eg, eb = c(120), c(200), 1.0
-        for i, lv in enumerate(samples):
-            frac = min(lv / max_level, 1.0)
-            top_y  = bot - 1.0 - frac * (gh - 1)
-            edge_y = bot - 1.0 - frac * (gh - 2)
-            xi = gx + i
-            fill += [xi, bot,   fr, fg, fb, 0.8,
-                     xi, top_y, fr, fg, fb, 0.8]
-            edge += [xi, edge_y, er, eg, eb, 1.0]
+        for bh, fill_col, edge_col in zip(band_data, _BAND_FILL, _BAND_EDGE):
+            n = len(bh)
+            if n >= gw:
+                samples = bh[n - gw:]
+            else:
+                samples = [0.0] * (gw - n) + bh
 
-        if fill:
-            self._g2d_draw(np.array(fill, dtype="f4").reshape(-1, 6), moderngl.TRIANGLE_STRIP)
-        if edge:
-            self._g2d_draw(np.array(edge, dtype="f4").reshape(-1, 6), moderngl.LINE_STRIP)
+            fill: list[float] = []
+            edge: list[float] = []
+            fr, fg, fb, fa = fill_col
+            er, eg, eb, ea = edge_col
+            for i, lv in enumerate(samples):
+                frac = min(lv / max_level, 1.0)
+                top_y  = bot - 1.0 - frac * (gh - 1)
+                edge_y = bot - 1.0 - frac * (gh - 2)
+                xi = gx + i
+                fill += [xi, bot,   fr, fg, fb, fa,
+                         xi, top_y, fr, fg, fb, fa]
+                edge += [xi, edge_y, er, eg, eb, ea]
+
+            if fill:
+                self._g2d_draw(np.array(fill, dtype="f4").reshape(-1, 6), moderngl.TRIANGLE_STRIP)
+            if edge:
+                self._g2d_draw(np.array(edge, dtype="f4").reshape(-1, 6), moderngl.LINE_STRIP)
 
         # Threshold line (orange) on waveform
         thr_y = gy + gh - 1.0 - min(threshold / max_level, 1.0) * (gh - 2)
@@ -476,26 +522,21 @@ class GLRenderer:
             moderngl.LINES,
         )
 
-        # Level bar background
+        # Level bars — three narrow bars, one per band
         self._g2d_draw(
             _g2d_rect(bx, gy, bar_w, gh, (c(30), c(30), c(40), 1.0)),
             moderngl.TRIANGLE_STRIP,
         )
-
-        # Level bar fill
-        fill_h = min(current_level / max_level, 1.0) * (gh - 1)
-        if fill_h > 0.5:
-            col = (c(60), c(220), c(100), 1.0) if current_level > threshold else (c(80), c(80), c(90), 1.0)
-            self._g2d_draw(
-                _g2d_rect(bx, gy + gh - fill_h, bar_w, fill_h, col),
-                moderngl.TRIANGLE_STRIP,
-            )
-
-        # Threshold tick on level bar
-        self._g2d_draw(
-            _g2d_hline(bx, thr_y, bar_w, (c(220), c(150), c(40), 1.0)),
-            moderngl.LINES,
-        )
+        sub_w = (bar_w - 2) / 3.0
+        bands_val = band_levels if band_levels is not None else (current_level,) * 3
+        for k, (bv, edge_col) in enumerate(zip(bands_val, _BAND_EDGE)):
+            fill_h = min(bv / max_level, 1.0) * (gh - 1)
+            if fill_h > 0.5:
+                bx_k = bx + k * sub_w
+                self._g2d_draw(
+                    _g2d_rect(bx_k, gy + gh - fill_h, sub_w, fill_h, edge_col),
+                    moderngl.TRIANGLE_STRIP,
+                )
 
         # Borders
         self._g2d_draw(_g2d_border(gx, gy, gw, gh, (c(60), c(60), c(80), 1.0)), moderngl.LINE_LOOP)

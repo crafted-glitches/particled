@@ -5,7 +5,6 @@ whole-cloud expansion and contraction with gentle drift and rotation.
 """
 
 import numpy as np
-import pygame
 
 from particled.config import Config
 from particled.visuals.particle_cloud.base import ParticleCloudBase
@@ -104,7 +103,7 @@ class ParticleCloudImpact(ParticleCloudBase):
 
         return base_size * audio_boost
 
-    def draw(self, surface: pygame.Surface, t: float, audio_level: float):
+    def draw(self, surface, t: float, audio_level: float, audio_bands: tuple[float, float, float] | None = None):
         """Draw the Impact mode particle cloud.
 
         Args:

@@ -6,7 +6,7 @@ Based on SVG '7'-shaped polygons rotated to form proper Penrose tribar.
 import math
 import random
 
-import pygame
+import numpy as np
 
 from particled.config import Config
 from particled.visuals.base import BaseVisualization
@@ -313,11 +313,12 @@ class PenroseTriangle(BaseVisualization):
             p["x"] = p["base_x"] + p["displacement_x"]
             p["y"] = p["base_y"] + p["displacement_y"]
 
-    def draw(self, surface: pygame.Surface, t: float, audio_level: float):
+    def draw(self, surface, t: float, audio_level: float, audio_bands: tuple[float, float, float] | None = None):
         """Render the Penrose triangle visualization.
 
         Args:
-            surface: Pygame surface to render to.
+            surface: Surface to render to (used by base-class CPU path only;
+                     in GL mode the GLRenderer handles output directly).
             t: Current time.
             audio_level: Current audio level.
 
@@ -325,29 +326,27 @@ class PenroseTriangle(BaseVisualization):
         # Update particle positions
         self._update_particles(t, audio_level)
 
-        # Draw particles
-        for p in self.particles:
-            # Base brightness from beam index
-            base_brightness = self.beam_brightness[p["beam_index"]]
+        n = len(self.particles)
+        xs = np.empty(n, dtype=np.float32)
+        ys = np.empty(n, dtype=np.float32)
+        brightnesses = np.empty(n, dtype=np.float32)
+        sizes = np.empty(n, dtype=np.float32)
 
-            # Audio boost - brighter when displaced from base
+        base_size = 2.0
+        for i, p in enumerate(self.particles):
+            base_brightness = self.beam_brightness[p["beam_index"]]
             displacement_mag = math.sqrt(
                 p["displacement_x"] ** 2 + p["displacement_y"] ** 2
             )
             audio_boost = audio_level * self.cfg.audio_gain * 0.5
-            displacement_boost = min(30, displacement_mag * 0.5)
+            displacement_boost = min(30.0, displacement_mag * 0.5)
 
-            brightness = int(base_brightness + audio_boost + displacement_boost)
-            brightness = max(0, min(255, brightness))
+            brightness = max(0.0, min(255.0, base_brightness + audio_boost + displacement_boost))
+            size = max(1.0, base_size + audio_level * self.cfg.audio_gain * 0.05)
 
-            color = (brightness, brightness, brightness)
+            xs[i] = p["x"]
+            ys[i] = p["y"]
+            brightnesses[i] = brightness / 255.0
+            sizes[i] = size
 
-            # Size varies with audio
-            base_size = 2
-            size = max(1, int(base_size + audio_level * self.cfg.audio_gain * 0.05))
-
-            x = int(p["x"])
-            y = int(p["y"])
-
-            if 0 <= x < surface.get_width() and 0 <= y < surface.get_height():
-                pygame.draw.circle(surface, color, (x, y), size)
+        self._render_points(surface, xs, ys, brightnesses, sizes)

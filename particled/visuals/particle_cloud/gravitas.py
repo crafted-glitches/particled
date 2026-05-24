@@ -6,7 +6,6 @@ and they return to their original positions using configurable mechanics.
 """
 
 import numpy as np
-import pygame
 
 from particled.config import Config
 from particled.visuals.particle_cloud.base import ParticleCloudBase
@@ -47,6 +46,7 @@ class ParticleCloudGravitas(ParticleCloudBase):
 
         """
         super().__init__(cfg)
+        self._last_draw_t: float | None = None
         self._initialize_particles()
 
     def _initialize_particles(self):
@@ -69,45 +69,48 @@ class ParticleCloudGravitas(ParticleCloudBase):
         max_radius = radius.max() if radius.max() > 0 else 1.0
         self.radial_distance = radius / max_radius
 
-    def _apply_audio_push(self, audio_level: float, dt: float = 1 / 60):
-        """Apply outward push force based on audio level and frequency mapping.
+        # Precompute frequency-band masks — radial_distance never changes after init
+        self._bass_mask = (
+            (self.radial_distance >= cfg.gravitas_bass_range[0])
+            & (self.radial_distance <= cfg.gravitas_bass_range[1])
+        )
+        self._mid_mask = (
+            (self.radial_distance >= cfg.gravitas_mid_range[0])
+            & (self.radial_distance <= cfg.gravitas_mid_range[1])
+        )
+        self._treble_mask = (
+            (self.radial_distance >= cfg.gravitas_treble_range[0])
+            & (self.radial_distance <= cfg.gravitas_treble_range[1])
+        )
 
-        Pushes particles radially outward from center based on audio level.
-        Different radial regions respond to different frequency characteristics
-        for varied, organic movement.
+    def _apply_audio_push(self, band_levels: tuple[float, float, float], dt: float = 1 / 60):
+        """Apply outward push force driven by real per-frequency-band levels.
+
+        Voice frequency zones map to radial layers of the cloud:
+          - Inner core  (bass_mask)   → chest resonance / voice fundamental ~80–300 Hz
+          - Middle ring (mid_mask)    → vowel formants / speech clarity  ~300–3000 Hz
+          - Outer shell (treble_mask) → sibilance / fricatives            ~3000–8000 Hz
 
         Args:
-            audio_level: Current audio level (0.0-2.0).
+            band_levels: (bass, mid, treble) RMS levels from AudioMeter.get_band_levels().
             dt: Time delta for physics integration.
 
         """
         cfg = self.cfg
 
-        # Apply noise threshold
-        effective_audio = max(0.0, audio_level - cfg.audio_noise_threshold)
-        if effective_audio <= 0:
-            effective_audio = 0.0
+        bass_v, mid_v, treble_v = band_levels
 
-        # Frequency band simulation (in absence of real FFT)
-        # Bass affects outer particles, treble affects inner particles
-        bass_mask = (self.radial_distance >= cfg.gravitas_bass_range[0]) & (
-            self.radial_distance <= cfg.gravitas_bass_range[1]
-        )
-        mid_mask = (self.radial_distance >= cfg.gravitas_mid_range[0]) & (
-            self.radial_distance <= cfg.gravitas_mid_range[1]
-        )
-        treble_mask = (self.radial_distance >= cfg.gravitas_treble_range[0]) & (
-            self.radial_distance <= cfg.gravitas_treble_range[1]
-        )
+        eff_bass   = max(0.0, bass_v   - cfg.audio_noise_threshold)
+        eff_mid    = max(0.0, mid_v    - cfg.audio_noise_threshold)
+        eff_treble = max(0.0, treble_v - cfg.audio_noise_threshold)
 
-        # Simulated frequency response (bass = 0.7, mid = 1.0, treble = 0.5)
-        freq_response = np.ones_like(self.radial_distance)
-        freq_response[bass_mask] *= 0.7 + 0.3 * effective_audio
-        freq_response[mid_mask] *= 1.0 * effective_audio
-        freq_response[treble_mask] *= 0.5 + 0.5 * effective_audio
+        # Each radial zone is driven exclusively by its own voice-frequency band
+        freq_response = np.zeros_like(self.radial_distance)
+        freq_response[self._bass_mask]   = eff_bass
+        freq_response[self._mid_mask]    = eff_mid
+        freq_response[self._treble_mask] = eff_treble
 
-        # Calculate push force radially outward
-        push_strength = cfg.gravitas_push_strength * freq_response * effective_audio
+        push_strength = cfg.gravitas_push_strength * freq_response
 
         # Normalize base positions to get radial direction
         base_magnitude = np.sqrt(
@@ -180,17 +183,12 @@ class ParticleCloudGravitas(ParticleCloudBase):
         """
         cfg = self.cfg
 
-        # Linear return with damping
-        return_force = cfg.gravitas_linear_return_speed * dt
+        # Combined factor: dt-scaled pull toward zero × constant damping
+        factor = (1.0 - cfg.gravitas_linear_return_speed * dt) * cfg.gravitas_linear_damping_factor
 
-        self.displacement_x *= 1.0 - return_force
-        self.displacement_y *= 1.0 - return_force
-        self.displacement_z *= 1.0 - return_force
-
-        # Apply additional damping
-        self.displacement_x *= cfg.gravitas_linear_damping_factor
-        self.displacement_y *= cfg.gravitas_linear_damping_factor
-        self.displacement_z *= cfg.gravitas_linear_damping_factor
+        self.displacement_x *= factor
+        self.displacement_y *= factor
+        self.displacement_z *= factor
 
     def _apply_exponential_return(self, dt: float):
         """Apply exponential decay return with fast-then-slow behavior.
@@ -234,23 +232,33 @@ class ParticleCloudGravitas(ParticleCloudBase):
 
         return x, y, z
 
-    def draw(self, surface: pygame.Surface, t: float, audio_level: float):
+    def draw(self, surface, t: float, audio_level: float, audio_bands: tuple[float, float, float] | None = None):
         """Orchestrate rendering with audio-reactive gravity mechanics.
 
         Args:
-            surface: Pygame surface to render to.
+            surface: Surface passed to base-class render path.
             t: Current time in seconds.
-            audio_level: Current audio level (0.0-2.0).
+            audio_level: Broadband RMS level (fallback when bands unavailable).
+            audio_bands: (bass, mid, treble) RMS levels from AudioMeter; if None,
+                falls back to splitting audio_level equally across all bands.
 
         """
-        # Clamp audio level
-        audio_level = max(0.0, min(audio_level, 2.0))
+        # Clamp audio level (AudioMeter caps output at 1.5)
+        audio_level = max(0.0, min(audio_level, 1.5))
 
-        # Physics update (60 FPS assumption)
-        dt = 1 / 60
+        if audio_bands is None:
+            # Fallback: treat broadband level as uniform across all bands
+            audio_bands = (audio_level, audio_level, audio_level)
+
+        # Real dt from elapsed time; first frame falls back to fps target
+        if self._last_draw_t is None:
+            dt = 1.0 / self.cfg.fps
+        else:
+            dt = max(t - self._last_draw_t, 1e-4)
+        self._last_draw_t = t
 
         # Apply audio push
-        self._apply_audio_push(audio_level, dt)
+        self._apply_audio_push(audio_bands, dt)
 
         # Apply return-to-center mechanics
         self._apply_return_mechanic(dt)

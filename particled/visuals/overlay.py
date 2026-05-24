@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import pygame
+from particled import compat as pygame
 
 _FONTS_DIR = Path(__file__).parent.parent / "assets" / "fonts"
 _FONT_PRIMARY  = _FONTS_DIR / "ShureTechMonoNerdFont-Regular.ttf"
@@ -118,11 +118,17 @@ class Slider:
         self._dragging = False
         self._font: pygame.font.Font | None = None
         self._small_font: pygame.font.Font | None = None
+        # Cached rendered surfaces — label never changes; value only when value changes.
+        self._label_surf: pygame.Surface | None = None
+        self._val_surf: pygame.Surface | None = None
+        self._last_val_str: str | None = None
 
     def _init_fonts(self):
         if self._font is None:
             self._font = _load_font(_FONT_SZ)
             self._small_font = _load_font(_HEAD_SZ)
+            # Pre-render the label — it never changes for this slider instance.
+            self._label_surf = self._small_font.render(self.defn.label, True, _LABEL)
 
     # ── value helpers ──────────────────────────────────────────────────────────
 
@@ -189,17 +195,18 @@ class Slider:
         d = self.defn
         ox, oy = panel_ox + self.x, panel_oy + self.y
 
-        # label
-        lbl = self._small_font.render(d.label, True, _LABEL)
-        surface.blit(lbl, (ox, oy))
+        # label — use cached surface (re-rendered once in _init_fonts)
+        surface.blit(self._label_surf, (ox, oy))
 
-        # value
+        # value — re-render only when the formatted string changes
         if d.int_fmt():
             val_str = str(int(round(self.value)))
         else:
             val_str = d.fmt.format(self.value)
-        val_surf = self._font.render(val_str, True, _VALUE)
-        surface.blit(val_surf, (ox + self.width - val_surf.get_width(), oy))
+        if val_str != self._last_val_str:
+            self._val_surf = self._font.render(val_str, True, _VALUE)
+            self._last_val_str = val_str
+        surface.blit(self._val_surf, (ox + self.width - self._val_surf.get_width(), oy))
 
         # track
         ty = oy + 20 + _SLIDER_H // 2
@@ -364,6 +371,11 @@ class OverlayPanel:
         self._inner_surf = pygame.Surface((_PANEL_W, total_h), pygame.SRCALPHA)
         self._cached_surf = None
         self._dirty = True
+        # Cache section header renders — rebuilt here whenever sections change.
+        self._section_label_surfs: list[pygame.Surface] = [
+            self._font.render(f"\u2500\u2500 {sec.title} \u2500\u2500", True, _SECTION)
+            for sec in self.sections
+        ]
 
     def _ensure_built(self, screen: pygame.Surface):
         if not self._sliders:
@@ -603,8 +615,8 @@ class OverlayPanel:
 
         y_cursor = self._title_band_h
         sl_idx = 0
-        for sec in self.sections:
-            sec_lbl = self._font.render(f"\u2500\u2500 {sec.title} \u2500\u2500", True, _SECTION)
+        for sec_i, sec in enumerate(self.sections):
+            sec_lbl = self._section_label_surfs[sec_i]
             inner.blit(sec_lbl, (_PAD, y_cursor))
             y_cursor += 22
             for _ in sec.sliders:
@@ -743,11 +755,14 @@ class AudioGraph:
 
         # ── GPU path: draw everything as GL geometry, no pygame surface ───────────
         if self._gl is not None:
+            bass_h, mid_h, treble_h = self._meter.get_band_histories()
             self._gl.draw_audio_graph(
                 self._meter.get_history(),
                 self._cfg.audio_noise_threshold,
                 self._meter.get_level(),
                 px, py,
+                band_histories=(bass_h, mid_h, treble_h),
+                band_levels=self._meter.get_band_levels(),
             )
             return
 
@@ -781,31 +796,35 @@ class AudioGraph:
         ref_y = gy + _AG_H - 1 - int((1.0 / _AG_MAX_LEVEL) * (_AG_H - 2))
         pygame.draw.line(panel, (50, 50, 70), (gx, ref_y), (gx + _AG_W - 1, ref_y), 1)
 
-        # ── waveform ───────────────────────────────────────────────────────────
-        history = self._meter.get_history()
-        n = len(history)
-        if n >= _AG_W:
-            samples = history[n - _AG_W:]
-        else:
-            samples = [0.0] * (_AG_W - n) + history
-
-        # filled bars
-        for i, level in enumerate(samples):
-            bar_h = int(min(level / _AG_MAX_LEVEL, 1.0) * (_AG_H - 1))
-            if bar_h > 0:
-                pygame.draw.line(
-                    panel, (40, 90, 160),
-                    (gx + i, gy + _AG_H - 1 - bar_h),
-                    (gx + i, gy + _AG_H - 1),
-                )
-
-        # bright edge line on top of bars
-        edge_pts = [
-            (gx + i, gy + _AG_H - 1 - int(min(lv / _AG_MAX_LEVEL, 1.0) * (_AG_H - 2)))
-            for i, lv in enumerate(samples)
-        ]
-        if len(edge_pts) > 1:
-            pygame.draw.lines(panel, (120, 200, 255), False, edge_pts, 1)
+        # ── per-band waveforms ─────────────────────────────────────────────────
+        # bass=red, mid=green, treble=blue; overlaid transparently
+        bass_h, mid_h, treble_h = self._meter.get_band_histories()
+        _BAND_FILL  = [(100, 40,  40),  (40,  100, 40),  (40,  60, 130)]
+        _BAND_EDGE  = [(220, 80,  80),  (80,  220, 80),  (80, 140, 255)]
+        for band_history, fill_col, edge_col in zip(
+            [bass_h, mid_h, treble_h], _BAND_FILL, _BAND_EDGE
+        ):
+            n = len(band_history)
+            if n >= _AG_W:
+                samples = band_history[n - _AG_W:]
+            else:
+                samples = [0.0] * (_AG_W - n) + band_history
+            # filled bars
+            for i, level in enumerate(samples):
+                bar_h = int(min(level / _AG_MAX_LEVEL, 1.0) * (_AG_H - 1))
+                if bar_h > 0:
+                    pygame.draw.line(
+                        panel, fill_col,
+                        (gx + i, gy + _AG_H - 1 - bar_h),
+                        (gx + i, gy + _AG_H - 1),
+                    )
+            # bright edge line
+            edge_pts = [
+                (gx + i, gy + _AG_H - 1 - int(min(lv / _AG_MAX_LEVEL, 1.0) * (_AG_H - 2)))
+                for i, lv in enumerate(samples)
+            ]
+            if len(edge_pts) > 1:
+                pygame.draw.lines(panel, edge_col, False, edge_pts, 1)
 
         # ── noise threshold line (orange) ──────────────────────────────────────
         thr = cfg.audio_noise_threshold
@@ -817,21 +836,23 @@ class AudioGraph:
         # ── graph border ───────────────────────────────────────────────────────
         pygame.draw.rect(panel, (60, 60, 80), (gx, gy, _AG_W, _AG_H), 1)
 
-        # ── instantaneous level bar (right of graph) ───────────────────────────
+        # ── instantaneous level bars — one per band, stacked ──────────────────
         current = self._meter.get_level()
+        band_bass, band_mid, band_treble = self._meter.get_band_levels()
         bx = gx + _AG_W + _AG_BAR_GAP
         pygame.draw.rect(panel, (30, 30, 40), (bx, gy, _AG_BAR_W, _AG_H))
-        bar_fill = int(min(current / _AG_MAX_LEVEL, 1.0) * (_AG_H - 1))
-        bar_col = (60, 220, 100) if current > thr else (80, 80, 90)
-        if bar_fill > 0:
-            pygame.draw.rect(
-                panel, bar_col,
-                (bx, gy + _AG_H - bar_fill, _AG_BAR_W, bar_fill),
-            )
-        # threshold tick on bar
-        bar_thr_y = gy + _AG_H - 1 - int(min(thr / _AG_MAX_LEVEL, 1.0) * (_AG_H - 2))
-        pygame.draw.line(panel, (220, 150, 40), (bx, bar_thr_y), (bx + _AG_BAR_W - 1, bar_thr_y), 1)
-        pygame.draw.rect(panel, (60, 60, 80), (bx, gy, _AG_BAR_W, _AG_H), 1)
+        # draw three narrow bars side-by-side within the bar area
+        sub_w = max(1, (_AG_BAR_W - 2) // 3)
+        for k, (band_val, edge_col) in enumerate(zip(
+            [band_bass, band_mid, band_treble],
+            [(220, 80, 80), (80, 220, 80), (80, 140, 255)],
+        )):
+            bfill = int(min(band_val / _AG_MAX_LEVEL, 1.0) * (_AG_H - 1))
+            if bfill > 0:
+                pygame.draw.rect(
+                    panel, edge_col,
+                    (bx + k * sub_w, gy + _AG_H - bfill, sub_w, bfill),
+                )
 
         # ── panel border ───────────────────────────────────────────────────────
         pygame.draw.rect(panel, (80, 80, 100), panel.get_rect(), 1, border_radius=4)

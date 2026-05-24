@@ -23,7 +23,7 @@ class Config:
             fps: Target frames per second for rendering. Default 60.
 
         Particle Geometry:
-            num_particles: Number of particles to render (100-20000). Default 5500.
+            num_particles: Number of particles to render (100-20000). Default 1023.
             base_radius: Base radius for torus knot geometry. Default 2.2.
             tube_radius: Tube radius for torus knot structure. Default 0.9.
             knot_mu: Torus knot parameter μ (longitudinal loops). Default 2.
@@ -47,8 +47,8 @@ class Config:
         Visual Style:
             bg_color: Background color as RGB tuple. Default (0, 0, 0).
             particle_color: Particle color as RGB tuple. Default (255, 255, 255).
-            min_point_size: Minimum particle size in pixels. Default 1.
-            max_point_size: Maximum particle size in pixels. Default 4.
+            min_point_size: Minimum particle size in pixels. Default 1.43.
+            max_point_size: Maximum particle size in pixels. Default 5.72.
             fade_alpha: Trail fade alpha (0=long trails, 255=none). Default 25.
             brightness_gamma: Gamma correction for brightness (0.5-3). Default 1.8.
 
@@ -105,11 +105,11 @@ class Config:
     width: int = 1080  # change to your screen size
     height: int = 1920
     fullscreen: bool = False
-    fps: int = 59
+    fps: int = 24
     use_gl: bool = True  # True = GPU rendering via ModernGL (Quadro M1000M)
 
     # ---------- Particles / geometry ----------
-    num_particles: int = 7500
+    num_particles: int = 1023
     base_radius: float = 2.2
     tube_radius: float = 0.9
     knot_mu: int = 2  # torus-knot parameters
@@ -134,8 +134,8 @@ class Config:
     # ---------- Visual style ----------
     bg_color: tuple = (0, 0, 0)
     particle_color: tuple = (255, 255, 255)
-    min_point_size: int = 1
-    max_point_size: int = 4
+    min_point_size: float = 1.43
+    max_point_size: float = 5.72
     fade_alpha: int = 255  # 0=no trails, 255=instant clear
     brightness_gamma: float = 3.0
 
