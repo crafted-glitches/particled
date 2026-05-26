@@ -47,6 +47,8 @@ class ParticleCloudGravitas(ParticleCloudBase):
         """
         super().__init__(cfg)
         self._last_draw_t: float | None = None
+        self._swirl_env: float = 0.0
+        self._jitter_env: float = 0.0
         self._initialize_particles()
 
     def _initialize_particles(self):
@@ -83,7 +85,13 @@ class ParticleCloudGravitas(ParticleCloudBase):
             & (self.radial_distance <= cfg.gravitas_treble_range[1])
         )
 
-    def _apply_audio_push(self, band_levels: tuple[float, float, float], dt: float = 1 / 60):
+    def _apply_audio_push(
+        self,
+        band_levels: tuple[float, float, float],
+        dt: float = 1 / 60,
+        audio_features: dict | None = None,
+        t: float = 0.0,
+    ):
         """Apply outward push force driven by real per-frequency-band levels.
 
         Voice frequency zones map to radial layers of the cloud:
@@ -104,13 +112,35 @@ class ParticleCloudGravitas(ParticleCloudBase):
         eff_mid    = max(0.0, mid_v    - cfg.audio_noise_threshold)
         eff_treble = max(0.0, treble_v - cfg.audio_noise_threshold)
 
-        # Each radial zone is driven exclusively by its own voice-frequency band
-        freq_response = np.zeros_like(self.radial_distance)
-        freq_response[self._bass_mask]   = eff_bass
-        freq_response[self._mid_mask]    = eff_mid
-        freq_response[self._treble_mask] = eff_treble
+        multibands = None
+        transient = 0.0
+        centroid = 0.0
+        if audio_features is not None:
+            mb = audio_features.get("bands")
+            if mb is not None:
+                multibands = np.asarray(mb, dtype=np.float32)
+            transient = float(audio_features.get("transient", 0.0))
+            centroid = float(audio_features.get("centroid", 0.0))
 
-        push_strength = cfg.gravitas_push_strength * freq_response
+        # Use log-spaced multiband response when available; otherwise preserve
+        # the original 3-zone mapping.
+        if multibands is not None and len(multibands) >= 3:
+            n = len(multibands)
+            idx = np.clip((self.radial_distance * (n - 1)).astype(np.int32), 0, n - 1)
+            freq_response = multibands[idx]
+        else:
+            freq_response = np.zeros_like(self.radial_distance)
+            freq_response[self._bass_mask] = eff_bass
+            freq_response[self._mid_mask] = eff_mid
+            freq_response[self._treble_mask] = eff_treble
+
+        freq_response = np.maximum(0.0, freq_response - cfg.audio_noise_threshold)
+        # Preserve multiband detail while reducing abrupt force spikes.
+        freq_response = np.tanh(freq_response * 1.1)
+
+        # Higher spectral centroid biases push toward the cloud exterior.
+        outer_bias = 1.0 + cfg.gravitas_centroid_influence * centroid * self.radial_distance
+        push_strength = cfg.gravitas_push_strength * freq_response * outer_bias
 
         # Normalize base positions to get radial direction
         base_magnitude = np.sqrt(
@@ -124,6 +154,37 @@ class ParticleCloudGravitas(ParticleCloudBase):
         self.displacement_x += dir_x * push_strength * dt
         self.displacement_y += dir_y * push_strength * dt
         self.displacement_z += dir_z * push_strength * dt
+
+        # Mid energy drives a tangential swirl around the center.
+        swirl_drive = eff_mid
+        if multibands is not None and len(multibands) >= 3:
+            l = max(1, len(multibands) // 3)
+            h = max(l + 1, (2 * len(multibands)) // 3)
+            swirl_drive = float(np.mean(multibands[l:h]))
+        tang_norm = np.sqrt(self.base_x**2 + self.base_y**2 + 1e-8)
+        tan_x = -self.base_y / tang_norm
+        tan_y = self.base_x / tang_norm
+        swirl_target = max(0.0, swirl_drive - cfg.audio_noise_threshold)
+        self._swirl_env = 0.86 * self._swirl_env + 0.14 * swirl_target
+        swirl_strength = cfg.gravitas_swirl_strength * self._swirl_env
+        self.displacement_x += tan_x * swirl_strength * dt
+        self.displacement_y += tan_y * swirl_strength * dt
+
+        # Treble + transients create controlled micro-jitter for crisp attacks.
+        treble_drive = eff_treble
+        if multibands is not None and len(multibands) >= 3:
+            treble_drive = float(np.mean(multibands[(2 * len(multibands)) // 3:]))
+        jitter_target = max(0.0, treble_drive - cfg.audio_noise_threshold)
+        jitter_target += cfg.gravitas_transient_boost * transient
+        self._jitter_env = 0.90 * self._jitter_env + 0.10 * jitter_target
+        if self._jitter_env > 0.0:
+            jx = np.sin(self.phase_x * 6.4 + t * 11.0)
+            jy = np.sin(self.phase_y * 7.1 + t * 13.0)
+            jz = np.sin(self.phase_z * 7.8 + t * 9.0)
+            jitter = cfg.gravitas_jitter_strength * self._jitter_env * dt
+            self.displacement_x += jx * jitter
+            self.displacement_y += jy * jitter
+            self.displacement_z += jz * jitter
 
     def _apply_return_mechanic(self, dt: float = 1 / 60):
         """Apply return-to-center force based on configured mechanic.
@@ -232,7 +293,14 @@ class ParticleCloudGravitas(ParticleCloudBase):
 
         return x, y, z
 
-    def draw(self, surface, t: float, audio_level: float, audio_bands: tuple[float, float, float] | None = None):
+    def draw(
+        self,
+        surface,
+        t: float,
+        audio_level: float,
+        audio_bands: tuple[float, float, float] | None = None,
+        audio_features: dict | None = None,
+    ):
         """Orchestrate rendering with audio-reactive gravity mechanics.
 
         Args:
@@ -258,7 +326,7 @@ class ParticleCloudGravitas(ParticleCloudBase):
         self._last_draw_t = t
 
         # Apply audio push
-        self._apply_audio_push(audio_bands, dt)
+        self._apply_audio_push(audio_bands, dt, audio_features=audio_features, t=t)
 
         # Apply return-to-center mechanics
         self._apply_return_mechanic(dt)

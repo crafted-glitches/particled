@@ -146,7 +146,14 @@ class TorusKnotField(BaseVisualization):
             cfg.min_point_size + (cfg.max_point_size - cfg.min_point_size) * brightness
         )
 
-    def draw(self, surface, t: float, audio_level: float, audio_bands: tuple[float, float, float] | None = None):
+    def draw(
+        self,
+        surface,
+        t: float,
+        audio_level: float,
+        audio_bands: tuple[float, float, float] | None = None,
+        audio_features: dict | None = None,
+    ):
         """Orchestrate all rendering steps and draw the torus knot.
 
         Args:

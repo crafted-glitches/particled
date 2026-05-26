@@ -8,30 +8,37 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import threading
 import time
 
-# Prefer the NVIDIA GLX driver when both nvidia and Mesa GLX are installed.
-# Required on PRIME setups and harmless on single-GPU machines.
-os.environ.setdefault("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
-# Disable driver-level vblank sync.  Belt-and-suspenders: on Wayland the
-# compositor also enforces its own vsync; the real guard is the borderless-
-# window path below (fake-fullscreen) which keeps frames in the compositor's
-# normal composition path where swap is non-blocking.
-os.environ.setdefault("__GL_SYNC_TO_VBLANK", "0")
-# Ask the driver not to queue more than 1 pre-rendered frame.  Default is 2;
-# the second queued frame makes swap_buffers() stall on display timing slots.
-os.environ.setdefault("__GL_MaxFramesAllowed", "1")
-# Force zero swap interval at the GLX application level as an additional hint
-# to the driver (independent of the glXSwapInterval call from GLFW).
-os.environ.setdefault("__GLX_SWAP_INTERVAL_APP", "0")
-# Force the Python glfw package to load its X11/GLX variant instead of the
-# Wayland/EGL one.  On Wayland sessions (XDG_SESSION_TYPE=wayland) the package
-# defaults to wayland/libglfw.so, but that conflicts with the GLX-specific
-# NVIDIA env vars above and also lacks glfwGetX11Window which imgui-bundle
-# needs.  With x11/libglfw.so the window is created via XWayland (DISPLAY=:0)
-# and is actually visible on screen.
-os.environ.setdefault("PYGLFW_LIBRARY_VARIANT", "x11")
+_platform = platform.system()
+
+# Linux GLX tuning for NVIDIA PRIME / XWayland paths.
+if _platform == "Linux":
+    # Prefer the NVIDIA GLX driver when both nvidia and Mesa GLX are installed.
+    os.environ.setdefault("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
+    # Disable driver-level vblank sync.  Belt-and-suspenders: on Wayland the
+    # compositor also enforces its own vsync; the real guard is the borderless-
+    # window path below (fake-fullscreen) which keeps frames in the compositor's
+    # normal composition path where swap is non-blocking.
+    os.environ.setdefault("__GL_SYNC_TO_VBLANK", "0")
+    # Ask the driver not to queue more than 1 pre-rendered frame.  Default is 2;
+    # the second queued frame makes swap_buffers() stall on display timing slots.
+    os.environ.setdefault("__GL_MaxFramesAllowed", "1")
+    # Force zero swap interval at the GLX application level as an additional hint
+    # to the driver (independent of the glXSwapInterval call from GLFW).
+    os.environ.setdefault("__GLX_SWAP_INTERVAL_APP", "0")
+    # Force the Python glfw package to load its X11/GLX variant instead of the
+    # Wayland/EGL one.
+    os.environ.setdefault("PYGLFW_LIBRARY_VARIANT", "x11")
+
+# On macOS, point pyglfw at imgui-bundle's GLFW dylib so both wrappers share
+# one library and avoid duplicate Objective-C class registrations.
+if _platform == "Darwin":
+    from imgui_bundle import _glfw_set_search_path
+
+    _glfw_set_search_path()
 
 import glfw
 import moderngl
@@ -376,8 +383,15 @@ def main():
         # ── draw visualization ────────────────────────────────────────────
         audio_level = audio_meter.get_level()
         audio_bands = audio_meter.get_band_levels()
+        audio_features = audio_meter.get_features()
         _t0 = time.perf_counter()
-        field.draw(fake_screen, t, audio_level, audio_bands)
+        field.draw(
+            fake_screen,
+            t,
+            audio_level,
+            audio_bands,
+            audio_features=audio_features,
+        )
         t_field_ms = (time.perf_counter() - _t0) * 1000.0
 
         # ── audio graph (GPU geometry — no PIL) ──────────────────────────

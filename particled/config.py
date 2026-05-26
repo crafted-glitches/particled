@@ -129,7 +129,7 @@ class Config:
     audio_radius_scale: float = 0.65
     audio_distortion_scale: float = 0.8
     audio_rotation_boost: float = 0.35
-    audio_noise_threshold: float = 0.02  # Baseline noise level to ignore (0-1)
+    audio_noise_threshold: float = 0.03  # Baseline noise level to ignore (0-1)
 
     # ---------- Visual style ----------
     bg_color: tuple = (0, 0, 0)
@@ -143,6 +143,10 @@ class Config:
     sample_rate: int = 44100
     channels: int = 1
     blocksize: int = 1024
+    audio_band_count: int = 8
+    audio_analysis_min_hz: float = 40.0
+    audio_analysis_max_hz: float = 14000.0
+    audio_transient_sensitivity: float = 1.1
 
     # ---------- Particle Cloud specific ----------
     cloud_density_sigma: float = 0.9  # Gaussian spread (lower=denser center)
@@ -158,7 +162,7 @@ class Config:
     cloud_density_falloff: float = 0.5  # Density-based size falloff rate
 
     # ---------- Gravitas mode specific ----------
-    gravitas_push_strength: float = 3.5  # Outward push force from audio (0-5)
+    gravitas_push_strength: float = 2.3  # Outward push force from audio (0-5)
     gravitas_return_mechanic: str = "spring"  # spring, linear, exponential
     # Spring mechanic parameters
     gravitas_spring_strength: float = 2.0  # Spring force (0-2)
@@ -174,6 +178,10 @@ class Config:
     gravitas_bass_range: tuple = (0.0, 0.3)  # Particle radius range for bass
     gravitas_mid_range: tuple = (0.3, 0.7)  # Particle radius range for mids
     gravitas_treble_range: tuple = (0.7, 1.0)  # Particle radius range for treble
+    gravitas_swirl_strength: float = 1.0  # Mid-band-driven tangential motion
+    gravitas_jitter_strength: float = 0.45  # Treble-driven micro-turbulence
+    gravitas_transient_boost: float = 0.55  # Extra jitter from onsets/transients
+    gravitas_centroid_influence: float = 0.35  # Bright-sound bias toward outer shell
 
     # ---------- Penrose Triangle specific ----------
     penrose_triangle_scale: float = 400.0  # Triangle size in 3D space (100-1000)

@@ -103,7 +103,14 @@ class BaseVisualization(ABC):
         self.cfg = cfg
 
     @abstractmethod
-    def draw(self, surface: pygame.Surface, t: float, audio_level: float, audio_bands: tuple[float, float, float] | None = None):
+    def draw(
+        self,
+        surface: pygame.Surface,
+        t: float,
+        audio_level: float,
+        audio_bands: tuple[float, float, float] | None = None,
+        audio_features: dict | None = None,
+    ):
         """Render the visualization to pygame surface.
 
         Must be implemented by subclasses.

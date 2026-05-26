@@ -313,7 +313,14 @@ class PenroseTriangle(BaseVisualization):
             p["x"] = p["base_x"] + p["displacement_x"]
             p["y"] = p["base_y"] + p["displacement_y"]
 
-    def draw(self, surface, t: float, audio_level: float, audio_bands: tuple[float, float, float] | None = None):
+    def draw(
+        self,
+        surface,
+        t: float,
+        audio_level: float,
+        audio_bands: tuple[float, float, float] | None = None,
+        audio_features: dict | None = None,
+    ):
         """Render the Penrose triangle visualization.
 
         Args:

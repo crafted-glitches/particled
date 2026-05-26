@@ -103,7 +103,14 @@ class ParticleCloudImpact(ParticleCloudBase):
 
         return base_size * audio_boost
 
-    def draw(self, surface, t: float, audio_level: float, audio_bands: tuple[float, float, float] | None = None):
+    def draw(
+        self,
+        surface,
+        t: float,
+        audio_level: float,
+        audio_bands: tuple[float, float, float] | None = None,
+        audio_features: dict | None = None,
+    ):
         """Draw the Impact mode particle cloud.
 
         Args:
