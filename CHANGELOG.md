@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [0.9.1] - 2026-05-26
+
+### Fixed
+- `particled` command installed from PyPI no longer crashes with `ModuleNotFoundError: No module named 'main'`.
+- Runtime launcher is now package-local (`particled.runtime`) so installed environments do not rely on repository-root files.
+- `particled --version` now reports the installed package version dynamically instead of a stale hardcoded value.
+
 ## [0.9.0] - 2026-05-26
 
 ### Added

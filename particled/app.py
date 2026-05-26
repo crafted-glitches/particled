@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import argparse
+from importlib.metadata import PackageNotFoundError, version
 
 
-VERSION = "0.1.0"
+def _package_version() -> str:
+    """Return installed package version, falling back for source runs."""
+    try:
+        return version("particled")
+    except PackageNotFoundError:
+        return "0.0.0+local"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -16,7 +22,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version",
         action="version",
-        version=f"particled {VERSION}",
+        version=f"particled {_package_version()}",
     )
     parser.add_argument(
         "-s",
@@ -33,14 +39,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     # Import heavyweight rendering/audio modules only when actually running.
-    from main import main as run_main
+    from particled.runtime import main as run_main
 
     run_main_args = []
     if args.selective:
         run_main_args.append("--selective")
 
-    # main.py parses sys.argv internally; patch argv-style behavior by reusing
-    # subprocess-free invocation through argparse-compatible globals.
+    # The runtime parser reads sys.argv, so patch it for subprocess-free handoff.
     import sys
 
     old_argv = sys.argv

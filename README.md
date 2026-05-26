@@ -112,6 +112,22 @@ poetry run particled
 poetry run particled --version
 ```
 
+## Post-install Usage (pip)
+
+After installing from PyPI, run Particled with:
+
+```bash
+particled
+particled --selective
+particled --version
+```
+
+If the `particled` command is not on your PATH, use:
+
+```bash
+python -m particled
+```
+
 The application will prompt you to:
 1. Select visualization style (Torus Knot or Particle Cloud)
 2. Select mode (for Particle Cloud: Gravitas or Impact)
