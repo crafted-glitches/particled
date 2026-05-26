@@ -1,6 +1,6 @@
 [project]
 name = "particled"
-version = "0.1.0"
+version = "0.9.0"
 description = "A Black on White Sound-Interactive Particle Visualiser"
 authors = [{ name = "Alaa", email = "self@alaa.sh" }]
 readme = "README.md"
