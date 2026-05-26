@@ -54,7 +54,7 @@ class ParticleCloudGravitas(ParticleCloudBase):
     def _initialize_particles(self):
         """Initialize particles with displacement tracking for Gravitas mode."""
         # Initialize base particles (positions, phases, density)
-        radius = self._initialize_base_particles()
+        self._initialize_base_particles()
 
         cfg = self.cfg
         n = cfg.num_particles
@@ -66,10 +66,6 @@ class ParticleCloudGravitas(ParticleCloudBase):
         self.velocity_x = np.zeros(n)
         self.velocity_y = np.zeros(n)
         self.velocity_z = np.zeros(n)
-
-        # Normalized radial distance for frequency band mapping
-        max_radius = radius.max() if radius.max() > 0 else 1.0
-        self.radial_distance = radius / max_radius
 
         # Precompute frequency-band masks — radial_distance never changes after init
         self._bass_mask = (
@@ -343,6 +339,17 @@ class ParticleCloudGravitas(ParticleCloudBase):
         # Compute brightness and sizes
         brightness = self._compute_brightness(scale)
         sizes = self._compute_sizes(brightness)
+
+        keep_mask, size_mul = self._compute_band_modulation(audio_bands, audio_features)
+        sizes = sizes * size_mul
+
+        if not np.any(keep_mask):
+            return
+
+        xs = xs[keep_mask]
+        ys = ys[keep_mask]
+        brightness = brightness[keep_mask]
+        sizes = sizes[keep_mask]
 
         # Render
         self._render_points(surface, xs, ys, brightness, sizes)

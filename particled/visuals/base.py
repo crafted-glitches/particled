@@ -196,7 +196,10 @@ class BaseVisualization(ABC):
 
         """
         cfg = self.cfg
-        return np.clip(scale / scale.max(), 0.0, 1.0) ** cfg.brightness_gamma
+        max_scale = float(np.max(scale))
+        if max_scale <= 0.0:
+            max_scale = 1.0
+        return np.clip(scale / max_scale, 0.0, 1.0) ** cfg.brightness_gamma
 
     def _render_points(
         self,

@@ -147,6 +147,22 @@ class Config:
     audio_analysis_min_hz: float = 40.0
     audio_analysis_max_hz: float = 14000.0
     audio_transient_sensitivity: float = 1.1
+    band1_particle_count_scale: float = 1.0
+    band2_particle_count_scale: float = 1.0
+    band3_particle_count_scale: float = 1.0
+    band4_particle_count_scale: float = 1.0
+    band5_particle_count_scale: float = 1.0
+    band6_particle_count_scale: float = 1.0
+    band7_particle_count_scale: float = 1.0
+    band8_particle_count_scale: float = 1.0
+    band1_particle_size_scale: float = 1.0
+    band2_particle_size_scale: float = 1.0
+    band3_particle_size_scale: float = 1.0
+    band4_particle_size_scale: float = 1.0
+    band5_particle_size_scale: float = 1.0
+    band6_particle_size_scale: float = 1.0
+    band7_particle_size_scale: float = 1.0
+    band8_particle_size_scale: float = 1.0
 
     # ---------- Particle Cloud specific ----------
     cloud_density_sigma: float = 0.9  # Gaussian spread (lower=denser center)
@@ -191,3 +207,19 @@ class Config:
     penrose_particle_spread: float = 200.0  # Spread when flowing out (50-500)
     penrose_rotation_speed: float = 0.3  # Triangle rotation speed (0.0-1.0)
     penrose_edge_thickness: float = 50.0  # Edge beam thickness (10-100)
+
+    def get_particle_band_count_scales(self) -> tuple[float, ...]:
+        """Return per-band particle count multipliers for active analysis bands."""
+        n_bands = max(1, int(self.audio_band_count))
+        return tuple(
+            float(getattr(self, f"band{i}_particle_count_scale", 1.0))
+            for i in range(1, n_bands + 1)
+        )
+
+    def get_particle_band_size_scales(self) -> tuple[float, ...]:
+        """Return per-band particle size multipliers for active analysis bands."""
+        n_bands = max(1, int(self.audio_band_count))
+        return tuple(
+            float(getattr(self, f"band{i}_particle_size_scale", 1.0))
+            for i in range(1, n_bands + 1)
+        )

@@ -6,6 +6,10 @@ then assembles them into an OverlayPanel ready to attach to main.py.
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
 from particled.config import Config
 from particled.visuals.overlay import OverlayPanel, SectionDef, SliderDef
 
@@ -14,7 +18,7 @@ from particled.visuals.overlay import OverlayPanel, SectionDef, SliderDef
 _COMMON = SectionDef(
     title="Common",
     sliders=[
-        SliderDef("Particles",        "num_particles",    100,   5000,  50,   "{:.0f}"),
+        SliderDef("Particles",        "num_particles",    100,  20000, 100,   "{:.0f}"),
         SliderDef("Point size",       "max_point_size",   1.0,   12.0,  0.1,  "{:.1f}"),
         SliderDef("Fade / trails",    "fade_alpha",         0,     255,   1,   "{:.0f}"),
         SliderDef("Brightness gamma", "brightness_gamma",  0.5,   3.0,  0.05, "{:.2f}"),
@@ -43,6 +47,35 @@ _CLOUD_AUDIO = SectionDef(
         SliderDef("Size boost",       "cloud_audio_size_boost",  0.0, 1.0, 0.01,  "{:.2f}"),
     ],
 )
+
+
+def _build_band_mapping_section(max_bands: int = 8) -> SectionDef:
+    sliders: list[SliderDef] = []
+    for i in range(1, max_bands + 1):
+        sliders.append(
+            SliderDef(
+                f"Band {i} count",
+                f"band{i}_particle_count_scale",
+                0.0,
+                2.0,
+                0.02,
+                "{:.2f}",
+            )
+        )
+        sliders.append(
+            SliderDef(
+                f"Band {i} size",
+                f"band{i}_particle_size_scale",
+                0.2,
+                3.0,
+                0.02,
+                "{:.2f}",
+            )
+        )
+    return SectionDef(title="Band mapping", sliders=sliders)
+
+
+_BAND_MAPPING = _build_band_mapping_section()
 
 _GRAVITAS = SectionDef(
     title="Gravitas",
@@ -102,9 +135,9 @@ def sections_for(style: str, mode: str | None) -> list[SectionDef]:
     elif style == "Penrose":
         return [_COMMON, _PENROSE]
     elif mode == "Impact":
-        return [_COMMON, _CLOUD_MOTION, _CLOUD_AUDIO]
+        return [_COMMON, _CLOUD_MOTION, _CLOUD_AUDIO, _BAND_MAPPING]
     else:  # Gravitas (default)
-        return [_COMMON, _CLOUD_MOTION, _CLOUD_AUDIO, _GRAVITAS]
+        return [_COMMON, _CLOUD_MOTION, _CLOUD_AUDIO, _BAND_MAPPING, _GRAVITAS]
 
 
 # ── per-mode canonical defaults ────────────────────────────────────────────────
@@ -139,6 +172,22 @@ _DEFAULTS_GRAVITAS: dict[str, object] = {
     "gravitas_spring_mass": 0.7,
     "gravitas_linear_return_speed": 0.3,
     "gravitas_linear_damping_factor": 0.9,
+    "band1_particle_count_scale": 1.0,
+    "band2_particle_count_scale": 1.0,
+    "band3_particle_count_scale": 1.0,
+    "band4_particle_count_scale": 1.0,
+    "band5_particle_count_scale": 1.0,
+    "band6_particle_count_scale": 1.0,
+    "band7_particle_count_scale": 1.0,
+    "band8_particle_count_scale": 1.0,
+    "band1_particle_size_scale": 1.0,
+    "band2_particle_size_scale": 1.0,
+    "band3_particle_size_scale": 1.0,
+    "band4_particle_size_scale": 1.0,
+    "band5_particle_size_scale": 1.0,
+    "band6_particle_size_scale": 1.0,
+    "band7_particle_size_scale": 1.0,
+    "band8_particle_size_scale": 1.0,
 }
 
 _DEFAULTS_IMPACT: dict[str, object] = {
@@ -157,6 +206,22 @@ _DEFAULTS_IMPACT: dict[str, object] = {
     "cloud_audio_drift_boost": 0.3,
     "cloud_audio_breath_boost": 0.5,
     "cloud_audio_size_boost": 0.3,
+    "band1_particle_count_scale": 1.0,
+    "band2_particle_count_scale": 1.0,
+    "band3_particle_count_scale": 1.0,
+    "band4_particle_count_scale": 1.0,
+    "band5_particle_count_scale": 1.0,
+    "band6_particle_count_scale": 1.0,
+    "band7_particle_count_scale": 1.0,
+    "band8_particle_count_scale": 1.0,
+    "band1_particle_size_scale": 1.0,
+    "band2_particle_size_scale": 1.0,
+    "band3_particle_size_scale": 1.0,
+    "band4_particle_size_scale": 1.0,
+    "band5_particle_size_scale": 1.0,
+    "band6_particle_size_scale": 1.0,
+    "band7_particle_size_scale": 1.0,
+    "band8_particle_size_scale": 1.0,
 }
 
 _DEFAULTS_TORUS: dict[str, object] = {
@@ -218,3 +283,53 @@ def build_overlay(cfg: Config, style: str, mode: str | None) -> OverlayPanel:
 
     """
     return OverlayPanel(cfg, sections_for, style, mode, defaults_for)
+
+
+_PRESET_DIR = Path(".0folder.bak") / "presets"
+
+
+def _preset_attrs(style: str, mode: str | None) -> list[str]:
+    attrs: list[str] = []
+    for sec in sections_for(style, mode):
+        for sdef in sec.sliders:
+            if sdef.attr not in attrs:
+                attrs.append(sdef.attr)
+    return attrs
+
+
+def save_preset(cfg: Config, style: str, mode: str | None, name: str) -> Path:
+    """Persist current panel values to JSON preset file."""
+    preset_name = (name or "default").strip().replace(" ", "_")
+    _PRESET_DIR.mkdir(parents=True, exist_ok=True)
+    path = _PRESET_DIR / f"{preset_name}.json"
+
+    attrs = _preset_attrs(style, mode)
+    values = {attr: getattr(cfg, attr) for attr in attrs if hasattr(cfg, attr)}
+    payload = {
+        "name": preset_name,
+        "style": style,
+        "mode": mode,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "values": values,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def load_preset(cfg: Config, style: str, mode: str | None, name: str) -> dict[str, int]:
+    """Load panel values from JSON preset file into cfg."""
+    preset_name = (name or "default").strip().replace(" ", "_")
+    path = _PRESET_DIR / f"{preset_name}.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    applied = 0
+    skipped = 0
+    allowed_attrs = set(_preset_attrs(style, mode))
+    for attr, val in payload.get("values", {}).items():
+        if attr in allowed_attrs and hasattr(cfg, attr):
+            setattr(cfg, attr, val)
+            applied += 1
+        else:
+            skipped += 1
+
+    return {"applied": applied, "skipped": skipped}

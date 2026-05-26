@@ -137,5 +137,16 @@ class ParticleCloudImpact(ParticleCloudBase):
         # Compute sizes
         sizes = self._compute_sizes_with_audio(brightness, audio_level)
 
+        keep_mask, size_mul = self._compute_band_modulation(audio_bands, audio_features)
+        sizes = sizes * size_mul
+
+        if not np.any(keep_mask):
+            return
+
+        xs = xs[keep_mask]
+        ys = ys[keep_mask]
+        brightness = brightness[keep_mask]
+        sizes = sizes[keep_mask]
+
         # Render
         self._render_points(surface, xs, ys, brightness, sizes)

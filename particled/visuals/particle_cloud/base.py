@@ -70,7 +70,71 @@ class ParticleCloudBase(BaseVisualization):
         # Density weights for size variation
         self.density = np.exp(-radius * cfg.cloud_density_falloff)
 
+        max_radius = float(np.max(radius))
+        if max_radius <= 0.0:
+            max_radius = 1.0
+        self.radial_distance = radius / max_radius
+
+        n_bands = max(1, int(cfg.audio_band_count))
+        self.band_index = np.clip(
+            (self.radial_distance * (n_bands - 1)).astype(np.int32),
+            0,
+            n_bands - 1,
+        )
+
+        # Stable particle gating seed so "count by band" doesn't flicker frame-to-frame.
+        self._gate_seed = np.random.random(n)
+
         return radius  # Return radius for subclass use
+
+    def _resolve_band_levels(
+        self,
+        audio_bands: tuple[float, float, float] | None,
+        audio_features: dict | None,
+    ) -> np.ndarray:
+        """Return a level vector sized to cfg.audio_band_count."""
+        n_bands = max(1, int(self.cfg.audio_band_count))
+
+        mb = None
+        if audio_features is not None:
+            mb = audio_features.get("bands")
+        if mb is not None:
+            arr = np.asarray(mb, dtype=np.float32)
+            if arr.size >= n_bands:
+                return np.clip(arr[:n_bands], 0.0, 1.5)
+            if arr.size > 1:
+                x_old = np.linspace(0.0, 1.0, arr.size)
+                x_new = np.linspace(0.0, 1.0, n_bands)
+                return np.clip(np.interp(x_new, x_old, arr), 0.0, 1.5)
+
+        if audio_bands is None:
+            audio_bands = (0.0, 0.0, 0.0)
+
+        bass, mid, treble = (float(v) for v in audio_bands)
+        anchors = np.array([bass, mid, treble], dtype=np.float32)
+        if n_bands == 1:
+            return np.array([float(np.mean(anchors))], dtype=np.float32)
+        x_old = np.array([0.0, 0.5, 1.0], dtype=np.float32)
+        x_new = np.linspace(0.0, 1.0, n_bands)
+        return np.clip(np.interp(x_new, x_old, anchors), 0.0, 1.5)
+
+    def _compute_band_modulation(
+        self,
+        audio_bands: tuple[float, float, float] | None,
+        audio_features: dict | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return (keep_mask, size_multiplier) based on per-band controls."""
+        levels = self._resolve_band_levels(audio_bands, audio_features)
+        count_scales = np.array(self.cfg.get_particle_band_count_scales(), dtype=np.float32)
+        size_scales = np.array(self.cfg.get_particle_band_size_scales(), dtype=np.float32)
+
+        # Count control: minimum floor keeps some structure while still allowing dropout.
+        presence = np.clip(count_scales * (0.20 + levels), 0.0, 1.0)
+        keep_mask = self._gate_seed <= presence[self.band_index]
+
+        # Size control: combine user scale with live energy in each mapped band.
+        size_mul = np.clip(size_scales[self.band_index] * (0.70 + levels[self.band_index]), 0.05, 6.0)
+        return keep_mask, size_mul
 
     def _apply_rotation(
         self, x: np.ndarray, y: np.ndarray, z: np.ndarray, t: float

@@ -95,12 +95,18 @@ class ImguiOverlay:
         mode: str | None,
         sections_factory: Callable,
         defaults_factory: Callable | None = None,
+        save_preset_factory: Callable | None = None,
+        load_preset_factory: Callable | None = None,
     ) -> None:
         self._cfg = cfg
         self._sections_factory = sections_factory
         self._defaults_factory = defaults_factory
         self.visible: bool = True
         self._changed: bool = False
+        self._save_preset_factory = save_preset_factory
+        self._load_preset_factory = load_preset_factory
+        self._preset_name = "default"
+        self._preset_status = ""
 
         self._style_idx = _STYLES.index(style) if style in _STYLES else 0
         _modes = _MODES_FOR.get(self.style, [])
@@ -210,6 +216,26 @@ class ImguiOverlay:
                     defaults = self._defaults_factory(self.style, self.mode)
                     for attr, val in defaults.items():
                         setattr(self._cfg, attr, val)
+
+            if self._save_preset_factory is not None and self._load_preset_factory is not None:
+                imgui.separator()
+                changed, new_name = imgui.input_text("Preset", self._preset_name, 64)
+                if changed:
+                    self._preset_name = new_name
+                if imgui.button("Save preset"):
+                    path = self._save_preset_factory(self._cfg, self.style, self.mode, self._preset_name)
+                    self._preset_status = f"Saved {path.name}"
+                imgui.same_line()
+                if imgui.button("Load preset"):
+                    try:
+                        result = self._load_preset_factory(self._cfg, self.style, self.mode, self._preset_name)
+                        self._preset_status = (
+                            f"Loaded {self._preset_name}: {result['applied']} applied, {result['skipped']} skipped"
+                        )
+                    except FileNotFoundError:
+                        self._preset_status = f"Preset '{self._preset_name}' not found"
+                if self._preset_status:
+                    imgui.text_disabled(self._preset_status)
 
             imgui.end()
         t_draw = (_t() - t0) * 1000.0

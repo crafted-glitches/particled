@@ -65,7 +65,12 @@ from particled.visuals import (
 from particled.visuals.gl_renderer import GLRenderer
 from particled.visuals.imgui_overlay import ImguiOverlay
 from particled.visuals.overlay import AudioGraph
-from particled.visuals.param_panels import sections_for, defaults_for
+from particled.visuals.param_panels import (
+    sections_for,
+    defaults_for,
+    save_preset,
+    load_preset,
+)
 from OpenGL.GL import glFlush
 
 from particled.logger import RunLogger
@@ -291,6 +296,8 @@ def main():
         window, cfg, style, mode,
         sections_factory=sections_for,
         defaults_factory=defaults_for,
+        save_preset_factory=save_preset,
+        load_preset_factory=load_preset,
     )
     audio_meter = AudioMeter(cfg, _run_log=log)
     audio_graph = AudioGraph(audio_meter, cfg)
