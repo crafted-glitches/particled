@@ -33,8 +33,13 @@ jobs:
           SDIST="$(ls dist/*.tar.gz | head -n 1)"
           SHA256="$(shasum -a 256 "$SDIST" | awk '{print $1}')"
           ABS_PATH="$PWD/$SDIST"
+          TAP="ci/particled"
+          TAP_REPO="$(brew --repository)/Library/Taps/ci/homebrew-particled"
 
-          cat > /tmp/particled.rb <<EOF
+          brew tap-new "$TAP" --no-git
+          mkdir -p "$TAP_REPO/Formula"
+
+          cat > "$TAP_REPO/Formula/particled.rb" <<EOF
           class Particled < Formula
             include Language::Python::Virtualenv
             desc "Audio-reactive particle visualizer"
@@ -57,7 +62,7 @@ jobs:
           end
           EOF
 
-          brew install --formula /tmp/particled.rb
+          brew install "$TAP/particled"
 
       - name: Smoke test executable
         run: particled --version

@@ -43,7 +43,6 @@ if _platform == "Darwin":
 import glfw
 import moderngl
 
-from particled.audio import AudioMeter
 from particled.cli import (
     configure_interactively,
     get_visualization_style,
@@ -206,6 +205,8 @@ class _AsyncSwap:
 
 def main():
     """Run the audio reactive particle visualizer."""
+    from particled.audio import AudioMeter
+
     parser = argparse.ArgumentParser(description="Audio reactive particle visualizer")
     parser.add_argument(
         "-s", "--selective",
