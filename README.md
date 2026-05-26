@@ -23,7 +23,7 @@ Particled is a real-time particle visualization system that responds to micropho
 
 ## Installation
 
-Requires Python 3.14+ and Poetry.
+Requires Python 3.13+ and Poetry.
 
 ### System dependencies
 
@@ -59,10 +59,13 @@ poetry install
 
 ```bash
 # Run with interactive configuration
-poetry run python main.py
+poetry run particled --selective
 
-# Or run directly with Python
-python main.py
+# Or run with defaults
+poetry run particled
+
+# Version check (non-interactive)
+poetry run particled --version
 ```
 
 The application will prompt you to:
@@ -73,6 +76,11 @@ The application will prompt you to:
 **Controls:**
 - `ESC` - Exit the application
 - Window is resizable by default
+
+## macOS Runtime Notes
+
+macOS-specific runtime permissions and external-display caveats are documented in
+[.0folder.bak/publishing/macos-runtime-notes.md](.0folder.bak/publishing/macos-runtime-notes.md).
 
 ## Visualization Modes
 
@@ -132,13 +140,21 @@ poetry run ruff check .
 # Run tests
 poetry run pytest
 
+# Build distributable artifacts and verify metadata
+poetry run python -m build
+poetry run twine check dist/*
+
 # Install pre-commit hooks
 poetry run pre-commit install
 ```
 
 ## License
 
-[Add your license here]
+MIT. See [LICENSE](LICENSE).
+
+## Release Process
+
+Release policy and checklist are documented in [RELEASING.md](RELEASING.md), and version history is tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits
 

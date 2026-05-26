@@ -1,0 +1,63 @@
+name: Homebrew Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  brew-smoke:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build source distribution
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build --sdist
+
+      - name: Install Homebrew dependencies
+        run: brew install python@3.13 portaudio glfw
+
+      - name: Generate local formula and install
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDIST="$(ls dist/*.tar.gz | head -n 1)"
+          SHA256="$(shasum -a 256 "$SDIST" | awk '{print $1}')"
+          ABS_PATH="$PWD/$SDIST"
+
+          cat > /tmp/particled.rb <<EOF
+          class Particled < Formula
+            include Language::Python::Virtualenv
+            desc "Audio-reactive particle visualizer"
+            homepage "https://github.com/crafted-glitches/particled"
+            url "file://$ABS_PATH"
+            sha256 "$SHA256"
+            license "MIT"
+
+            depends_on "python@3.13"
+            depends_on "portaudio"
+            depends_on "glfw"
+
+            def install
+              virtualenv_install_with_resources
+            end
+
+            test do
+              assert_match "particled", shell_output("#{bin}/particled --version")
+            end
+          end
+          EOF
+
+          brew install --formula /tmp/particled.rb
+
+      - name: Smoke test executable
+        run: particled --version

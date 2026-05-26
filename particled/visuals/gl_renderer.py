@@ -357,7 +357,7 @@ class GLRenderer:
         self._vbo.write(buf)
         self._vao.render(moderngl.POINTS, vertices=n)
 
-    def composite_surface(self, surf: "pygame.Surface") -> None:
+    def composite_surface(self, surf: object) -> None:
         """Composite a pygame SRCALPHA surface as a GL texture overlay.
 
         Call this after render() and before display.flip() to draw the
