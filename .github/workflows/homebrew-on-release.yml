@@ -1,0 +1,151 @@
+name: Homebrew On Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override version (defaults to release tag without leading v)"
+        required: false
+        type: string
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  PYPI_PACKAGE: particled
+  TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO != '' && vars.HOMEBREW_TAP_REPO || 'crafted-glitches/homebrew-particled' }}
+
+jobs:
+  prepare-formula:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      url: ${{ steps.meta.outputs.url }}
+      sha256: ${{ steps.sdist.outputs.sha256 }}
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+            VERSION="${TAG#v}"
+          fi
+
+          if [[ -z "$VERSION" ]]; then
+            echo "Unable to determine version. Provide workflow_dispatch input 'version' or publish from a v* release tag." >&2
+            exit 1
+          fi
+
+          URL="https://files.pythonhosted.org/packages/source/p/${PYPI_PACKAGE}/${PYPI_PACKAGE}-${VERSION}.tar.gz"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Download sdist and compute SHA256
+        id: sdist
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="${PYPI_PACKAGE}-${{ steps.meta.outputs.version }}.tar.gz"
+          URL="${{ steps.meta.outputs.url }}"
+
+          ok=false
+          for attempt in {1..30}; do
+            if curl -fsSL "$URL" -o "$FILE"; then
+              ok=true
+              break
+            fi
+            echo "PyPI artifact not available yet (attempt $attempt/30); retrying in 20s..."
+            sleep 20
+          done
+
+          if [[ "$ok" != "true" ]]; then
+            echo "Timed out waiting for PyPI artifact: $URL" >&2
+            exit 1
+          fi
+
+          SHA256="$(sha256sum "$FILE" | awk '{print $1}')"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Render formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > particled.rb <<EOF
+          class Particled < Formula
+            include Language::Python::Virtualenv
+
+            desc "Audio-reactive particle visualizer"
+            homepage "https://github.com/crafted-glitches/particled"
+            url "${{ steps.meta.outputs.url }}"
+            sha256 "${{ steps.sdist.outputs.sha256 }}"
+            license "MIT"
+
+            depends_on "python@3.13"
+            depends_on "portaudio"
+            depends_on "glfw"
+
+            def install
+              virtualenv_install_with_resources
+            end
+
+            test do
+              assert_match "particled", shell_output("#{bin}/particled --version")
+            end
+          end
+          EOF
+
+      - name: Upload formula artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-formula
+          path: particled.rb
+
+  open-tap-pr:
+    needs: prepare-formula
+    if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download formula artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: homebrew-formula
+          path: .
+
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TAP_REPO }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update formula in tap
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tap/Formula
+          cp particled.rb tap/Formula/particled.rb
+
+      - name: Open pull request in tap
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+          commit-message: "homebrew: update particled ${{ needs.prepare-formula.outputs.version }}"
+          branch: "automation/homebrew-${{ needs.prepare-formula.outputs.version }}"
+          title: "homebrew: particled ${{ needs.prepare-formula.outputs.version }}"
+          body: |
+            Automated Homebrew formula update.
+
+            - Version: ${{ needs.prepare-formula.outputs.version }}
+            - URL: ${{ needs.prepare-formula.outputs.url }}
+            - SHA256: ${{ needs.prepare-formula.outputs.sha256 }}
+          delete-branch: true
