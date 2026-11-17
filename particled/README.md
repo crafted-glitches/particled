@@ -18,7 +18,9 @@ particled/
     │   ├── base.py          # Shared Particle Cloud functionality
     │   ├── impact.py        # Impact mode (breathing animation)
     │   └── gravitas.py      # Gravitas mode (physics-based expansion)
-    └── torus_knot.py        # Torus Knot visualization
+    ├── torus_knot.py        # Torus Knot visualization
+    ├── noise.py             # Vectorised 3-D value noise / fbm (used by Plexus)
+    └── plexus.py            # Plexus crumpled wireframe mesh visualization
 
 ../main.py                   # Application entry point
 ```
@@ -60,6 +62,23 @@ Contains the `TorusKnotField` visualization:
   - `_apply_distortion()`: Audio-driven wobble effects
   - `_rotate_3d()`: 3D rotations around X and Y axes
   - `_compute_sizes()`: Brightness-based particle sizing
+  - `draw()`: Main orchestration method
+
+### `visuals/noise.py`
+Vectorised, dependency-free 3-D value noise / fractal Brownian motion:
+- `value_noise3()`: Smoothed, deterministic, seedable noise in [-1, 1]
+- `fbm3()`: Layered octaves of `value_noise3()` for organic surface detail
+
+### `visuals/plexus.py`
+Contains the `PlexusField` visualization - a crumpled, audio-reactive wireframe mesh:
+- Fibonacci-sphere node lattice, continuously displaced by fractal noise
+- Fixed k-NN "shell" + random "chord" candidate edge graph, built once at init
+- Per-frame, audio-reactive edge visibility threshold (denser web when loud)
+- Methods:
+  - `_build_base_nodes()`: Uniform Fibonacci-sphere node distribution
+  - `_build_candidate_edges()`: k-NN + chord candidate graph construction
+  - `_compute_crumple_displacement()`: Noise-driven organic surface distortion
+  - `_resolve_bass_mid_treble()`: Per-band audio envelope extraction
   - `draw()`: Main orchestration method
 
 ### `visuals/particle_cloud/`
@@ -110,6 +129,7 @@ Contains interactive configuration functions:
 - `configure_gravitas()`: Gravitas mode specific configuration
 - `configure_impact()`: Impact mode specific configuration
 - `configure_torus_knot()`: Torus Knot specific configuration
+- `configure_plexus()`: Plexus mesh specific configuration
 - `configure_interactively()`: Routes to style and mode-specific configuration
 - `prompt_for_interactive_config()`: Ask user for interactive mode
 
@@ -204,6 +224,9 @@ torus_field = TorusKnotField(config)
 gravitas_cloud = ParticleCloudGravitas(config)
 # or
 impact_cloud = ParticleCloudImpact(config)
+# or (Plexus is not re-exported at the top-level package yet; import directly)
+from particled.visuals import PlexusField
+plexus_field = PlexusField(config)
 
 # Programmatic Gravitas configuration example
 config = Config()
@@ -221,6 +244,15 @@ config.gravitas_exponential_decay_rate = 0.15
 # Initialize components
 field = ParticleCloudGravitas(config)
 audio_meter = AudioMeter(config)
+
+# Programmatic Plexus configuration example
+config = Config()
+config.plexus_crumple_amplitude = 0.8
+config.plexus_connection_distance_factor = 0.7
+config.plexus_connection_distance_audio_boost = 2.2
+config.plexus_transient_flash_strength = 1.2
+
+plexus_field = PlexusField(config)
 ```
 
 ## Interactive Configuration Parameters
@@ -370,6 +402,64 @@ Controls vertical (up-down) rotation speed of the entire structure.
 - **0.3-0.8**: Noticeable tumbling that shows all angles of the structure.
 - **0.8-2.0**: Rapid spinning that creates dynamic, ever-changing views.
 - **Tip**: Different X and Y speeds create complex Lissajous-like rotation patterns.
+
+### Plexus Specific Parameters
+
+Plexus renders a cloud of nodes on a Fibonacci sphere, continuously displaced
+by fractal noise, and connected by a fixed candidate graph of short
+(nearest-neighbor) and long ("chord") edges. Only candidate edges shorter
+than a dynamic, audio-reactive threshold are drawn each frame.
+
+#### Node count
+Plexus reuses the shared **Particles** slider (`num_particles`) as its node
+count, like every other style, but internally caps it at 3000 nodes so the
+one-time candidate-graph construction and per-frame edge count stay fast.
+
+#### Base Radius (0.5-4.0, default: 1.6)
+Sphere radius before crumpling (`plexus_base_radius`).
+
+#### Shell Links (2-16, default: 5)
+Nearest-neighbor links kept per node (`plexus_knn_links`); higher values
+produce a denser, more faceted hull.
+
+#### Chord Ratio (0.0-2.0, default: 0.5)
+Extra random long-range links, as a fraction of node count
+(`plexus_chord_link_ratio`); these are the long diagonal lines crossing
+through the mesh's volume.
+
+#### Crumple Amount / Frequency / Octaves / Evolve Speed / Tangential Mix
+Control the fractal-noise displacement that gives the mesh its organic,
+hand-crumpled, continuously writhing silhouette (`plexus_crumple_amplitude`,
+`plexus_crumple_frequency`, `plexus_crumple_octaves`,
+`plexus_crumple_evolve_speed`, `plexus_crumple_tangential_mix`).
+
+#### Link Threshold / Link Audio Boost (default: 0.9 / 1.8)
+Set how readily candidate edges are drawn, as a multiple of their mean
+resting length (`plexus_connection_distance_factor`), and how much louder
+audio additionally densifies the web (`plexus_connection_distance_audio_boost`).
+
+#### Edge Width / Opacity / Length Falloff
+Line thickness in pixels (`plexus_edge_width`), baseline opacity
+(`plexus_edge_base_alpha`), and how strongly longer (near-threshold) edges
+dim relative to short ones (`plexus_edge_length_falloff`).
+
+#### Node Dot Size / Node Brightness
+Optional bright dots drawn at each node, in addition to the edges
+(`plexus_node_point_size`, `plexus_node_brightness_boost`); 0 disables dots.
+
+#### Rotation Y/X/Z, Precession, Breath Speed/Amount
+Whole-mesh rotation on all three axes plus a slow precession wobble for a
+less mechanical tumble, and a scale "breathing" pulse
+(`plexus_rotation_speed_y/x/z`, `plexus_precession_wobble`,
+`plexus_breath_speed`, `plexus_breath_amplitude`).
+
+#### Audio Reactivity
+Independent audio-driven boosts for crumple amplitude, rotation speed, and
+overall brightness, plus an onset "flash" (strength + decay) and per-band
+influences (`plexus_audio_crumple_boost`, `plexus_audio_rotation_boost`,
+`plexus_audio_brightness_boost`, `plexus_transient_flash_strength`,
+`plexus_transient_flash_decay`, `plexus_bass_scale_influence`,
+`plexus_mid_swirl_influence`, `plexus_treble_jitter_influence`).
 
 ### Brightness Gamma (0.5-3.0, default: 1.8)
 Adjusts the contrast and brightness distribution based on particle depth.

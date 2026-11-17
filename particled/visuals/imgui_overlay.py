@@ -66,7 +66,7 @@ from imgui_bundle import imgui  # noqa: E402
 from imgui_bundle.imgui import backends as _imgui_backends  # noqa: E402
 
 # Style/mode registry (mirrors overlay.py constants)
-_STYLES: list[str] = ["Particle Cloud", "Torus Knot", "Penrose"]
+_STYLES: list[str] = ["Particle Cloud", "Torus Knot", "Penrose", "Plexus"]
 _MODES_FOR: dict[str, list[str]] = {"Particle Cloud": ["Gravitas", "Impact"]}
 
 

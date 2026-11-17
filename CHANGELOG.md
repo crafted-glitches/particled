@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [Unreleased]
+
+## [0.10.0] - 2026-11-17
+
+### Added
+- New **Plexus** visualization style: a crumpled, audio-reactive wireframe mesh of nodes on a Fibonacci sphere lattice, connected by a dense web of nearest-neighbor and long-range "chord" edges whose visibility, brightness, and crumple intensity react to audio level, frequency bands, and onsets.
+- GPU line-segment rendering (`GLRenderer.render_lines`) and a matching CPU fallback (`BaseVisualization._render_lines`), expanding each edge into an anti-aliased, configurable-width quad independent of driver `glLineWidth` support.
+- Dependency-free vectorised 3-D value noise / fractal Brownian motion module (`particled.visuals.noise`) used to drive the Plexus mesh's organic deformation.
+- Plexus resting behaviour is now graceful: audio level is smoothed (fast attack, slow release), edges fade in and out over a soft threshold instead of popping, rotation angles are integrated so audio changes never cause jumps, and default motion is calmer.
+- Plexus is brighter by default (near-white edges) with a new `plexus_min_brightness` floor, higher edge opacity and gentler length falloff.
+- Over two dozen new `plexus_*` configuration parameters spanning node/edge topology, noise shape, whole-mesh motion, and per-band audio reactivity, plus matching CLI prompts, live parameter panel sections, and preset support.
+
 ## [0.9.1] - 2026-05-26
 
 ### Fixed

@@ -16,6 +16,7 @@ Particled is a real-time particle visualization system that responds to micropho
 - **Particle Cloud - Gravitas Mode**: Physics-based gravity-centered expansion with audio reactivity
 - **Particle Cloud - Impact Mode**: Whole-cloud breathing animation with gentle drift
 - **Penrose Triangle**: Impossible triangle geometry with audio-reactive particle flow
+- **Plexus**: Crumpled, audio-reactive wireframe mesh with a dense, ever-writhing network of connections
 
 ```mermaid
 flowchart LR
@@ -25,12 +26,14 @@ flowchart LR
 	Main --> Gravitas[Particle Cloud: Gravitas]
 	Main --> Torus[Torus Knot]
 	Main --> Penrose[Penrose Triangle]
+	Main --> Plexus[Plexus Mesh]
 	Main --> Overlay[ImGui Params Overlay]
 	Overlay --> Presets[Preset Save / Load]
 	Impact --> Frame[GPU Frame]
 	Gravitas --> Frame
 	Torus --> Frame
 	Penrose --> Frame
+	Plexus --> Frame
 
 	classDef audio fill:#0f766e,color:#ffffff,stroke:#0b5f58,stroke-width:2px;
 	classDef core fill:#1d4ed8,color:#ffffff,stroke:#1e40af,stroke-width:2px;
@@ -40,7 +43,7 @@ flowchart LR
 
 	class Mic,Meter audio;
 	class Main core;
-	class Impact,Gravitas,Torus,Penrose vis;
+	class Impact,Gravitas,Torus,Penrose,Plexus vis;
 	class Overlay,Presets ui;
 	class Frame out;
 ```
@@ -129,7 +132,7 @@ python -m particled
 ```
 
 The application will prompt you to:
-1. Select visualization style (Torus Knot or Particle Cloud)
+1. Select visualization style (Torus Knot, Particle Cloud, Penrose, or Plexus)
 2. Select mode (for Particle Cloud: Gravitas or Impact)
 3. Optionally configure parameters interactively
 
@@ -161,6 +164,13 @@ Gentle whole-cloud breathing animation with:
 - Soft expansion and contraction
 - Drift motion for organic feel
 - Audio-reactive size and motion
+
+### Plexus
+Crumpled, audio-reactive wireframe mesh:
+- Nodes on a Fibonacci sphere lattice, continuously displaced by fractal noise into a hand-crumpled, slowly writhing silhouette
+- Nearest-neighbor "shell" links plus random long-range "chord" links form a dense tangled web
+- Audio dynamically controls how many links are visible (denser web when loud), overall brightness, and an onset "flash"
+- Independently configurable noise, edge, whole-mesh motion, and per-band audio reactivity parameters
 
 ## Documentation
 

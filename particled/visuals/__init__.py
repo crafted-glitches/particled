@@ -6,6 +6,7 @@ from particled.visuals.particle_cloud import (
     ParticleCloudImpact,
 )
 from particled.visuals.penrose import PenroseTriangle
+from particled.visuals.plexus import PlexusField
 from particled.visuals.torus_knot import TorusKnotField
 
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     "ParticleCloudGravitas",
     "ParticleCloudImpact",
     "PenroseTriangle",
+    "PlexusField",
     "TorusKnotField",
     "fade_surface",
 ]

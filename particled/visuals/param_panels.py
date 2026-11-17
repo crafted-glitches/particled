@@ -125,6 +125,60 @@ _PENROSE = SectionDef(
     ],
 )
 
+_PLEXUS_SHAPE = SectionDef(
+    title="Plexus shape",
+    sliders=[
+        SliderDef("Base radius",     "plexus_base_radius",            0.5, 4.0,  0.05, "{:.2f}"),
+        SliderDef("Shell links",     "plexus_knn_links",               2,  16,   1,    "{:.0f}"),
+        SliderDef("Chord ratio",     "plexus_chord_link_ratio",        0.0, 2.0,  0.02, "{:.2f}"),
+        SliderDef("Crumple amount",  "plexus_crumple_amplitude",       0.0, 2.0,  0.02, "{:.2f}"),
+        SliderDef("Crumple freq",    "plexus_crumple_frequency",       0.1, 5.0,  0.05, "{:.2f}"),
+        SliderDef("Crumple octaves", "plexus_crumple_octaves",         1,   5,   1,    "{:.0f}"),
+        SliderDef("Crumple evolve",  "plexus_crumple_evolve_speed",    0.0, 1.0,  0.01, "{:.2f}"),
+        SliderDef("Tangential mix",  "plexus_crumple_tangential_mix",  0.0, 1.0,  0.02, "{:.2f}"),
+    ],
+)
+
+_PLEXUS_EDGES = SectionDef(
+    title="Plexus edges",
+    sliders=[
+        SliderDef("Link threshold",   "plexus_connection_distance_factor",        0.3, 4.0, 0.02, "{:.2f}"),
+        SliderDef("Link audio boost", "plexus_connection_distance_audio_boost",   0.0, 4.0, 0.02, "{:.2f}"),
+        SliderDef("Edge width",       "plexus_edge_width",                        0.5, 6.0, 0.1,  "{:.1f}"),
+        SliderDef("Edge opacity",     "plexus_edge_base_alpha",                   0.0, 1.0, 0.01, "{:.2f}"),
+        SliderDef("Length falloff",   "plexus_edge_length_falloff",               0.0, 2.0, 0.02, "{:.2f}"),
+        SliderDef("Min brightness",   "plexus_min_brightness",                    0.0, 1.0, 0.01, "{:.2f}"),
+        SliderDef("Node dot size",    "plexus_node_point_size",                   0.0, 6.0, 0.1,  "{:.1f}"),
+        SliderDef("Node brightness",  "plexus_node_brightness_boost",             0.0, 1.0, 0.01, "{:.2f}"),
+    ],
+)
+
+_PLEXUS_MOTION = SectionDef(
+    title="Plexus motion",
+    sliders=[
+        SliderDef("Rotation Y",     "plexus_rotation_speed_y",   0.0,  0.5,  0.005, "{:.3f}"),
+        SliderDef("Rotation X",     "plexus_rotation_speed_x",   0.0,  0.5,  0.005, "{:.3f}"),
+        SliderDef("Rotation Z",     "plexus_rotation_speed_z",   0.0,  0.5,  0.005, "{:.3f}"),
+        SliderDef("Precession",     "plexus_precession_wobble",  0.0,  1.0,  0.01,  "{:.2f}"),
+        SliderDef("Breath speed",   "plexus_breath_speed",       0.0,  2.0,  0.02,  "{:.2f}"),
+        SliderDef("Breath amount",  "plexus_breath_amplitude",   0.0,  0.5,  0.01,  "{:.2f}"),
+    ],
+)
+
+_PLEXUS_AUDIO = SectionDef(
+    title="Plexus audio reactivity",
+    sliders=[
+        SliderDef("Crumple boost",    "plexus_audio_crumple_boost",       0.0, 3.0, 0.02, "{:.2f}"),
+        SliderDef("Rotation boost",   "plexus_audio_rotation_boost",      0.0, 2.0, 0.02, "{:.2f}"),
+        SliderDef("Brightness boost", "plexus_audio_brightness_boost",    0.0, 2.0, 0.02, "{:.2f}"),
+        SliderDef("Flash strength",   "plexus_transient_flash_strength",  0.0, 3.0, 0.02, "{:.2f}"),
+        SliderDef("Flash decay",      "plexus_transient_flash_decay",     0.5, 0.99, 0.005, "{:.3f}"),
+        SliderDef("Bass scale",       "plexus_bass_scale_influence",      0.0, 2.0, 0.02, "{:.2f}"),
+        SliderDef("Mid swirl",        "plexus_mid_swirl_influence",       0.0, 2.0, 0.02, "{:.2f}"),
+        SliderDef("Treble jitter",    "plexus_treble_jitter_influence",   0.0, 2.0, 0.02, "{:.2f}"),
+    ],
+)
+
 
 # ── factory ────────────────────────────────────────────────────────────────────
 
@@ -134,6 +188,8 @@ def sections_for(style: str, mode: str | None) -> list[SectionDef]:
         return [_COMMON, _TORUS]
     elif style == "Penrose":
         return [_COMMON, _PENROSE]
+    elif style == "Plexus":
+        return [_COMMON, _PLEXUS_SHAPE, _PLEXUS_EDGES, _PLEXUS_MOTION, _PLEXUS_AUDIO]
     elif mode == "Impact":
         return [_COMMON, _CLOUD_MOTION, _CLOUD_AUDIO, _BAND_MAPPING]
     else:  # Gravitas (default)
@@ -257,6 +313,45 @@ _DEFAULTS_PENROSE: dict[str, object] = {
     "penrose_edge_thickness": 50.0,
 }
 
+_DEFAULTS_PLEXUS: dict[str, object] = {
+    "num_particles": 1023,
+    "max_point_size": 5.72,
+    "fade_alpha": 25,
+    "brightness_gamma": 1.8,
+    "audio_gain": 50.0,
+    "audio_transient_sensitivity": 1.1,
+    "plexus_base_radius": 1.6,
+    "plexus_knn_links": 5,
+    "plexus_chord_link_ratio": 0.5,
+    "plexus_connection_distance_factor": 0.9,
+    "plexus_connection_distance_audio_boost": 1.8,
+    "plexus_crumple_amplitude": 0.35,
+    "plexus_crumple_frequency": 1.6,
+    "plexus_crumple_octaves": 3,
+    "plexus_crumple_evolve_speed": 0.06,
+    "plexus_crumple_tangential_mix": 0.35,
+    "plexus_rotation_speed_y": 0.06,
+    "plexus_rotation_speed_x": 0.03,
+    "plexus_rotation_speed_z": 0.012,
+    "plexus_precession_wobble": 0.3,
+    "plexus_breath_speed": 0.12,
+    "plexus_breath_amplitude": 0.08,
+    "plexus_edge_width": 1.4,
+    "plexus_edge_base_alpha": 0.9,
+    "plexus_edge_length_falloff": 0.5,
+    "plexus_min_brightness": 0.45,
+    "plexus_node_point_size": 0.0,
+    "plexus_node_brightness_boost": 0.25,
+    "plexus_audio_crumple_boost": 0.8,
+    "plexus_audio_rotation_boost": 0.35,
+    "plexus_audio_brightness_boost": 0.45,
+    "plexus_transient_flash_strength": 0.9,
+    "plexus_transient_flash_decay": 0.85,
+    "plexus_bass_scale_influence": 0.3,
+    "plexus_mid_swirl_influence": 0.4,
+    "plexus_treble_jitter_influence": 0.35,
+}
+
 
 def defaults_for(style: str, mode: str | None) -> dict[str, object]:
     """Return the canonical default values for a given style/mode combination."""
@@ -264,6 +359,8 @@ def defaults_for(style: str, mode: str | None) -> dict[str, object]:
         return dict(_DEFAULTS_TORUS)
     elif style == "Penrose":
         return dict(_DEFAULTS_PENROSE)
+    elif style == "Plexus":
+        return dict(_DEFAULTS_PLEXUS)
     elif mode == "Impact":
         return dict(_DEFAULTS_IMPACT)
     else:

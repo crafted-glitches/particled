@@ -80,6 +80,49 @@ void main() {
 }
 """
 
+# ── line / mesh-edge shaders ───────────────────────────────────────────────────
+# Each line segment is expanded on the CPU (NumPy) into a screen-space quad
+# (2 triangles) so line thickness is independent of the driver's often-clamped
+# glLineWidth support in a core GL profile. The fragment shader then feathers
+# the quad's short edges to give soft, anti-aliased hairlines.
+
+_LINE_VERT = """
+#version 330 core
+
+in vec2 in_position;    // screen-space pixel coords of this quad corner
+in float in_cross;      // -1..1 across the line's width
+in float in_brightness; // interpolated endpoint brightness
+
+out float v_cross;
+out float v_brightness;
+
+uniform vec2 u_resolution;
+
+void main() {
+    vec2 ndc = (in_position / u_resolution) * 2.0 - 1.0;
+    ndc.y = -ndc.y;
+    gl_Position = vec4(ndc, 0.0, 1.0);
+    v_cross = in_cross;
+    v_brightness = in_brightness;
+}
+"""
+
+_LINE_FRAG = """
+#version 330 core
+
+in float v_cross;
+in float v_brightness;
+out vec4 fragColor;
+
+uniform float u_alpha;
+
+void main() {
+    float d = abs(v_cross);
+    float edge_alpha = 1.0 - smoothstep(0.5, 1.0, d);
+    fragColor = vec4(v_brightness, v_brightness, v_brightness, edge_alpha * u_alpha);
+}
+"""
+
 _FADE_FRAG = """
 #version 330 core
 
@@ -252,6 +295,20 @@ class GLRenderer:
             [(self._fade_vbo, "2f", "in_position")],
         )
 
+        # --- line / mesh-edge pipeline (CPU-expanded quads, TRIANGLES) ---
+        self._line_prog = ctx.program(
+            vertex_shader=_LINE_VERT,
+            fragment_shader=_LINE_FRAG,
+        )
+        self._line_prog["u_resolution"].value = (float(width), float(height))
+        # 4 floats per vertex: x, y, cross, brightness; 6 vertices per edge.
+        self._line_vbo = ctx.buffer(reserve=self._INITIAL_CAPACITY * 6 * 4 * 4)
+        self._line_vao = ctx.vertex_array(
+            self._line_prog,
+            [(self._line_vbo, "2f 1f 1f", "in_position", "in_cross", "in_brightness")],
+        )
+        self._line_upload_buf = np.empty((self._INITIAL_CAPACITY * 6, 4), dtype="f4")
+
         ctx.enable(moderngl.BLEND)
         ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
         ctx.enable(moderngl.PROGRAM_POINT_SIZE)
@@ -303,6 +360,7 @@ class GLRenderer:
         self.height = height
         self.ctx.viewport = (0, 0, width, height)
         self._prog["u_resolution"].value = (float(width), float(height))
+        self._line_prog["u_resolution"].value = (float(width), float(height))
         self._g2d_prog["u_res"].value = (float(width), float(height))
 
     def fade(self, alpha: int) -> None:
@@ -356,6 +414,75 @@ class GLRenderer:
         # object directly, avoiding a redundant .tobytes() copy.
         self._vbo.write(buf)
         self._vao.render(moderngl.POINTS, vertices=n)
+
+    def render_lines(
+        self,
+        x0: np.ndarray,
+        y0: np.ndarray,
+        x1: np.ndarray,
+        y1: np.ndarray,
+        brightness0: np.ndarray,
+        brightness1: np.ndarray,
+        width: float,
+        alpha: float = 1.0,
+    ) -> None:
+        """Expand line segments into screen-space quads and draw as triangles.
+
+        Each segment becomes a thin quad (2 triangles, 6 vertices) oriented
+        along the segment and perpendicular-offset by half the line width.
+        Expansion happens in NumPy so width is exact and anti-aliased via the
+        fragment shader, independent of the driver's glLineWidth support.
+
+        Args:
+            x0, y0: Screen-space start coordinates of each segment.
+            x1, y1: Screen-space end coordinates of each segment.
+            brightness0: Brightness (0.0-1.0) at the start of each segment.
+            brightness1: Brightness (0.0-1.0) at the end of each segment.
+            width: Line thickness in pixels (shared by all segments this call).
+            alpha: Global opacity multiplier applied to every segment.
+
+        """
+        n = len(x0)
+        if n == 0:
+            return
+
+        dx = x1 - x0
+        dy = y1 - y0
+        length = np.sqrt(dx * dx + dy * dy)
+        length[length < 1e-6] = 1e-6
+        half_w = max(0.5, float(width)) * 0.5
+        nx = -dy / length * half_w
+        ny = dx / length * half_w
+
+        n_verts = n * 6
+        if n_verts > len(self._line_upload_buf):
+            self._line_upload_buf = np.empty((n_verts * 2, 4), dtype="f4")
+        buf = self._line_upload_buf[:n_verts].reshape(n, 6, 4)
+
+        # Quad corners: a = start+normal, b = start-normal, c = end+normal, d = end-normal.
+        # Two triangles: (a, b, c) and (b, d, c).
+        buf[:, 0, 0], buf[:, 0, 1] = x0 + nx, y0 + ny
+        buf[:, 1, 0], buf[:, 1, 1] = x0 - nx, y0 - ny
+        buf[:, 2, 0], buf[:, 2, 1] = x1 + nx, y1 + ny
+        buf[:, 3, 0], buf[:, 3, 1] = x0 - nx, y0 - ny
+        buf[:, 4, 0], buf[:, 4, 1] = x1 - nx, y1 - ny
+        buf[:, 5, 0], buf[:, 5, 1] = x1 + nx, y1 + ny
+
+        buf[:, 0, 2], buf[:, 1, 2], buf[:, 2, 2] = 1.0, -1.0, 1.0
+        buf[:, 3, 2], buf[:, 4, 2], buf[:, 5, 2] = -1.0, -1.0, 1.0
+
+        buf[:, 0, 3] = buf[:, 1, 3] = brightness0
+        buf[:, 2, 3] = buf[:, 5, 3] = brightness1
+        buf[:, 3, 3] = brightness0
+        buf[:, 4, 3] = brightness1
+
+        flat = buf.reshape(n_verts, 4)
+        n_bytes = flat.nbytes
+        if n_bytes > self._line_vbo.size:
+            self._line_vbo.orphan(n_bytes)
+        self._line_vbo.write(flat)
+        self._line_prog["u_alpha"].value = float(alpha)
+        self._line_vao.render(moderngl.TRIANGLES, vertices=n_verts)
 
     def composite_surface(self, surf: object) -> None:
         """Composite a pygame SRCALPHA surface as a GL texture overlay.

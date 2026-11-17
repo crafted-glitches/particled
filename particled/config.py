@@ -84,6 +84,66 @@ class Config:
             penrose_edge_thickness: Edge beam thickness in pixels (10-100).
                 Default 50.0.
 
+        Plexus Mesh Specific:
+            plexus_base_radius: Base sphere radius before crumpling (0.5-4).
+                Default 1.6.
+            plexus_knn_links: Nearest-neighbor shell links per node (2-16).
+                Default 5.
+            plexus_chord_link_ratio: Extra long-range links as a fraction of
+                node count (0-2). Default 0.5.
+            plexus_connection_distance_factor: Link visibility threshold as a
+                multiple of the mean candidate edge length. Default 0.9.
+            plexus_connection_distance_audio_boost: Audio-driven increase to
+                the link threshold (denser web when loud). Default 1.8.
+            plexus_min_brightness: Brightness floor (0-1); lifts the whole mesh
+                toward white. Default 0.45.
+            plexus_edge_width: Line thickness in pixels (0.5-6). Default 1.4.
+            plexus_edge_base_alpha: Baseline per-edge opacity (0-1). Default 0.5.
+            plexus_edge_length_falloff: How strongly longer edges dim relative
+                to shorter ones (0-2). Default 1.0.
+            plexus_node_point_size: Optional node dot size in px; 0 disables
+                node points. Default 0.0.
+            plexus_node_brightness_boost: Extra brightness on node points
+                relative to edges. Default 0.25.
+            plexus_crumple_amplitude: Noise-driven displacement magnitude
+                (the organic "crumpled paper" effect). Default 0.5.
+            plexus_crumple_frequency: Spatial frequency of the noise lumps.
+                Default 1.6.
+            plexus_crumple_octaves: Detail layers of fractal noise (1-5).
+                Default 3.
+            plexus_crumple_evolve_speed: How fast the noise field morphs over
+                time (writhing). Default 0.12.
+            plexus_crumple_tangential_mix: Blend between pure-radial and
+                tangential displacement (0-1). Default 0.35.
+            plexus_rotation_speed_y: Whole-mesh Y-axis rotation speed.
+                Default 0.09.
+            plexus_rotation_speed_x: Whole-mesh X-axis rotation speed.
+                Default 0.05.
+            plexus_rotation_speed_z: Whole-mesh Z-axis roll speed.
+                Default 0.02.
+            plexus_precession_wobble: Secondary wobble blended into the
+                rotation axis for a less mechanical tumble. Default 0.3.
+            plexus_breath_speed: Overall scale breathing animation speed.
+                Default 0.25.
+            plexus_breath_amplitude: Overall scale breathing amplitude.
+                Default 0.08.
+            plexus_audio_crumple_boost: Audio-driven extra crumple amplitude.
+                Default 0.8.
+            plexus_audio_rotation_boost: Audio-driven rotation speed
+                multiplier. Default 0.35.
+            plexus_audio_brightness_boost: Audio-driven overall brightness
+                boost. Default 0.45.
+            plexus_transient_flash_strength: Brightness/link-density spike on
+                onset. Default 0.9.
+            plexus_transient_flash_decay: Per-frame decay rate of the onset
+                flash envelope (0-1). Default 0.85.
+            plexus_bass_scale_influence: Bass band drives extra whole-mesh
+                scale pulsing. Default 0.3.
+            plexus_mid_swirl_influence: Mid band drives an extra twist/swirl
+                rotation offset. Default 0.4.
+            plexus_treble_jitter_influence: Treble band drives fine per-node
+                jitter. Default 0.35.
+
     Example:
         >>> # Use default configuration
         >>> config = Config()
@@ -207,6 +267,43 @@ class Config:
     penrose_particle_spread: float = 200.0  # Spread when flowing out (50-500)
     penrose_rotation_speed: float = 0.3  # Triangle rotation speed (0.0-1.0)
     penrose_edge_thickness: float = 50.0  # Edge beam thickness (10-100)
+
+    # ---------- Plexus mesh specific ----------
+    # Node level (smallest building element)
+    plexus_base_radius: float = 1.6  # Base sphere radius before crumpling (0.5-4.0)
+    # Edge level
+    plexus_knn_links: int = 5  # Nearest-neighbor shell links per node (2-16)
+    plexus_chord_link_ratio: float = 0.5  # Extra long-range links, as a fraction of node count (0-2)
+    plexus_connection_distance_factor: float = 0.9  # Link visibility threshold (x mean candidate length)
+    plexus_connection_distance_audio_boost: float = 1.8  # Audio-driven increase to the link threshold
+    plexus_min_brightness: float = 0.45  # Brightness floor so far/back edges stay light (0-1)
+    plexus_edge_width: float = 1.4  # Line thickness in pixels (0.5-6.0)
+    plexus_edge_base_alpha: float = 0.9  # Baseline per-edge opacity multiplier (0-1)
+    plexus_edge_length_falloff: float = 0.5  # How strongly longer edges dim (0=no falloff, 0-2)
+    plexus_node_point_size: float = 0.0  # Optional node dot size in px (0 disables node points)
+    plexus_node_brightness_boost: float = 0.25  # Extra brightness applied to node points vs edges
+    # Shape / noise level (the organic "crumple")
+    plexus_crumple_amplitude: float = 0.35  # Noise-driven positional displacement magnitude
+    plexus_crumple_frequency: float = 1.6  # Spatial frequency/scale of the noise lumps
+    plexus_crumple_octaves: int = 3  # Detail layers of fractal noise (1-5)
+    plexus_crumple_evolve_speed: float = 0.06  # How fast the noise field morphs over time (writhing)
+    plexus_crumple_tangential_mix: float = 0.35  # Blend between pure-radial and tangential displacement
+    # Whole-object motion level
+    plexus_rotation_speed_y: float = 0.06  # Whole-mesh Y-axis rotation speed
+    plexus_rotation_speed_x: float = 0.03  # Whole-mesh X-axis rotation speed
+    plexus_rotation_speed_z: float = 0.012  # Whole-mesh Z-axis roll speed
+    plexus_precession_wobble: float = 0.3  # Secondary wobble blended into the rotation axis
+    plexus_breath_speed: float = 0.12  # Overall scale breathing animation speed
+    plexus_breath_amplitude: float = 0.08  # Overall scale breathing amplitude
+    # Audio reactivity level
+    plexus_audio_crumple_boost: float = 0.8  # Audio-driven extra crumple amplitude
+    plexus_audio_rotation_boost: float = 0.35  # Audio-driven rotation speed multiplier
+    plexus_audio_brightness_boost: float = 0.45  # Audio-driven overall brightness boost
+    plexus_transient_flash_strength: float = 0.9  # Brightness/link-density spike on onset
+    plexus_transient_flash_decay: float = 0.85  # Per-frame decay rate of the onset flash envelope
+    plexus_bass_scale_influence: float = 0.3  # Bass band drives extra whole-mesh scale pulsing
+    plexus_mid_swirl_influence: float = 0.4  # Mid band drives an extra twist/swirl rotation offset
+    plexus_treble_jitter_influence: float = 0.35  # Treble band drives fine per-node jitter
 
     def get_particle_band_count_scales(self) -> tuple[float, ...]:
         """Return per-band particle count multipliers for active analysis bands."""

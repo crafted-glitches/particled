@@ -249,6 +249,56 @@ def _penrose_rotation_transformer(result: str) -> str:
     return f"[{bar}] {value:.2f}"
 
 
+def _plexus_radius_transformer(result: str) -> str:
+    """Transform Plexus base radius to visual bar (0.5-4.0 range)."""
+    value = float(result or 1.6)
+    normalized = int(((value - 0.5) * 100) / (4.0 - 0.5))
+    steps = 15
+    filled = max(0, min(steps, normalized * steps // 100))
+    bar = "█" * filled + "░" * (steps - filled)
+    return f"[{bar}] {value:.2f}"
+
+
+def _plexus_links_transformer(result: str) -> str:
+    """Transform Plexus shell-link count to visual bar (2-16 range)."""
+    value = int(result or 5)
+    normalized = ((value - 2) * 100) // (16 - 2)
+    steps = 15
+    filled = max(0, min(steps, normalized * steps // 100))
+    bar = "█" * filled + "░" * (steps - filled)
+    return f"[{bar}] {value}"
+
+
+def _plexus_crumple_transformer(result: str) -> str:
+    """Transform Plexus crumple amplitude to visual bar (0.0-2.0 range)."""
+    value = float(result or 0.5)
+    normalized = int((value * 100) / 2.0)
+    steps = 15
+    filled = max(0, min(steps, normalized * steps // 100))
+    bar = "█" * filled + "░" * (steps - filled)
+    return f"[{bar}] {value:.2f}"
+
+
+def _plexus_threshold_transformer(result: str) -> str:
+    """Transform Plexus link threshold to visual bar (0.3-4.0 range)."""
+    value = float(result or 0.9)
+    normalized = int(((value - 0.3) * 100) / (4.0 - 0.3))
+    steps = 15
+    filled = max(0, min(steps, normalized * steps // 100))
+    bar = "█" * filled + "░" * (steps - filled)
+    return f"[{bar}] {value:.2f}"
+
+
+def _plexus_edge_width_transformer(result: str) -> str:
+    """Transform Plexus edge width to visual bar (0.5-6.0 range)."""
+    value = float(result or 1.4)
+    normalized = int(((value - 0.5) * 100) / (6.0 - 0.5))
+    steps = 15
+    filled = max(0, min(steps, normalized * steps // 100))
+    bar = "█" * filled + "░" * (steps - filled)
+    return f"[{bar}] {value:.1f}"
+
+
 # ========== Common Input Helpers ==========
 
 
@@ -432,7 +482,7 @@ def get_visualization_style() -> str:
     """
     return inquirer.select(
         message="Select visualization style:",
-        choices=["Particle Cloud", "Torus Knot", "Penrose"],
+        choices=["Particle Cloud", "Torus Knot", "Penrose", "Plexus"],
         default="Particle Cloud",
     ).execute()
 
@@ -824,6 +874,104 @@ def configure_penrose() -> Config:
     return cfg
 
 
+def configure_plexus() -> Config:
+    """Prompt user for Plexus mesh configuration.
+
+    Returns:
+        Configured Config object for Plexus.
+
+    """
+    print("\n🕸️  Plexus Configuration\n")
+
+    base_radius = float(
+        inquirer.number(
+            message="Base radius (size before crumpling):",
+            default=1.6,
+            min_allowed=0.5,
+            max_allowed=4.0,
+            float_allowed=True,
+            transformer=_plexus_radius_transformer,
+        ).execute()
+    )
+
+    crumple_amplitude = float(
+        inquirer.number(
+            message="Crumple amount (noise-driven surface distortion):",
+            default=0.5,
+            min_allowed=0.0,
+            max_allowed=2.0,
+            float_allowed=True,
+            transformer=_plexus_crumple_transformer,
+        ).execute()
+    )
+
+    crumple_frequency = float(
+        inquirer.number(
+            message="Crumple frequency (lump scale):",
+            default=1.6,
+            min_allowed=0.1,
+            max_allowed=5.0,
+            float_allowed=True,
+            transformer=_plexus_crumple_transformer,
+        ).execute()
+    )
+
+    knn_links = int(
+        inquirer.number(
+            message="Shell links per node (hull density):",
+            default=5,
+            min_allowed=2,
+            max_allowed=16,
+            transformer=_plexus_links_transformer,
+        ).execute()
+    )
+
+    connection_distance_factor = float(
+        inquirer.number(
+            message="Link threshold (how readily nodes connect):",
+            default=0.9,
+            min_allowed=0.3,
+            max_allowed=4.0,
+            float_allowed=True,
+            transformer=_plexus_threshold_transformer,
+        ).execute()
+    )
+
+    edge_width = float(
+        inquirer.number(
+            message="Edge line width:",
+            default=1.4,
+            min_allowed=0.5,
+            max_allowed=6.0,
+            float_allowed=True,
+            transformer=_plexus_edge_width_transformer,
+        ).execute()
+    )
+
+    rotation_speed_y, rotation_speed_x = _prompt_rotation_speeds(
+        default_y=0.09, default_x=0.05
+    )
+
+    audio_gain = _prompt_audio_gain(default=50.0)
+    fade_alpha = _prompt_fade_alpha(default=25)
+    brightness_gamma = _prompt_brightness_gamma(default=1.8)
+
+    cfg = Config()
+    cfg.plexus_base_radius = base_radius
+    cfg.plexus_crumple_amplitude = crumple_amplitude
+    cfg.plexus_crumple_frequency = crumple_frequency
+    cfg.plexus_knn_links = knn_links
+    cfg.plexus_connection_distance_factor = connection_distance_factor
+    cfg.plexus_edge_width = edge_width
+    cfg.plexus_rotation_speed_y = rotation_speed_y
+    cfg.plexus_rotation_speed_x = rotation_speed_x
+    cfg.audio_gain = audio_gain
+    cfg.fade_alpha = fade_alpha
+    cfg.brightness_gamma = brightness_gamma
+
+    return cfg
+
+
 def configure_interactively(style: str) -> tuple[Config, str | None]:
     """Prompt user for style-specific configuration.
 
@@ -838,6 +986,8 @@ def configure_interactively(style: str) -> tuple[Config, str | None]:
         mode = get_particle_cloud_mode()
         return Config(), mode
     elif style == "Penrose":
+        return Config(), None
+    elif style == "Plexus":
         return Config(), None
     else:
         return Config(), None

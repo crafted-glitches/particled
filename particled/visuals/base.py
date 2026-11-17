@@ -67,6 +67,7 @@ class BaseVisualization(ABC):
         _project_to_screen: Convert 3D coordinates to screen space.
         _compute_brightness: Calculate brightness from depth values.
         _render_points: Draw all particles to the surface.
+        _render_lines: Draw a batch of line segments (mesh/graph edges) to the surface.
 
     Example:
         >>> class MyVisualization(BaseVisualization):
@@ -269,6 +270,62 @@ class BaseVisualization(ABC):
             for px, py, b, s in zip(lxs, lys, lbr, lsz):
                 intensity = int(255 * b)
                 pygame.draw.circle(surface, (intensity, intensity, intensity), (int(px), int(py)), int(s))
+
+    def _render_lines(
+        self,
+        surface: pygame.Surface,
+        x0: np.ndarray,
+        y0: np.ndarray,
+        x1: np.ndarray,
+        y1: np.ndarray,
+        brightness0: np.ndarray,
+        brightness1: np.ndarray,
+        width: float = 1.0,
+        alpha: float = 1.0,
+    ):
+        """Render a batch of line segments (e.g. a mesh/graph edge list).
+
+        Each segment is drawn between (x0, y0) and (x1, y1), with brightness
+        interpolated from brightness0 at the start to brightness1 at the end.
+        Used by mesh-style visualizations (e.g. Plexus) in addition to, or
+        instead of, point rendering.
+
+        Args:
+            surface: Pygame surface to draw to (CPU path only).
+            x0, y0: Screen-space start coordinates of each segment.
+            x1, y1: Screen-space end coordinates of each segment.
+            brightness0: Brightness (0.0-1.0) at the start of each segment.
+            brightness1: Brightness (0.0-1.0) at the end of each segment.
+            width: Line thickness in pixels.
+            alpha: Global opacity multiplier (0.0-1.0) applied to every segment.
+
+        """
+        if self.gl_renderer is not None:
+            self.gl_renderer.render_lines(
+                x0, y0, x1, y1, brightness0, brightness1, width, alpha
+            )
+            return
+
+        cfg = self.cfg
+        w, h = cfg.width, cfg.height
+        line_width = max(1, int(round(width)))
+        alpha_byte = max(0, min(255, int(round(255 * alpha))))
+
+        # A segment is visible if either endpoint falls on-screen.
+        visible = (
+            ((x0 >= 0) & (x0 < w) & (y0 >= 0) & (y0 < h))
+            | ((x1 >= 0) & (x1 < w) & (y1 >= 0) & (y1 < h))
+        )
+        if not visible.any():
+            return
+
+        for sx0, sy0, sx1, sy1, b0, b1 in zip(
+            x0[visible], y0[visible], x1[visible], y1[visible],
+            brightness0[visible], brightness1[visible],
+        ):
+            intensity = int(255 * max(0.0, min(1.0, (b0 + b1) * 0.5)))
+            color = (intensity, intensity, intensity, alpha_byte)
+            pygame.draw.line(surface, color, (sx0, sy0), (sx1, sy1), line_width)
 
 
 def fade_surface(surface: pygame.Surface, alpha: int):

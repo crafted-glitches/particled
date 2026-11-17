@@ -59,6 +59,7 @@ from particled.visuals import (
     ParticleCloudGravitas,
     ParticleCloudImpact,
     PenroseTriangle,
+    PlexusField,
     TorusKnotField,
 )
 from particled.visuals.gl_renderer import GLRenderer
@@ -86,6 +87,8 @@ def _make_field(style: str, mode: str | None, cfg: Config):
         return TorusKnotField(cfg)
     elif style == "Penrose":
         return PenroseTriangle(cfg)
+    elif style == "Plexus":
+        return PlexusField(cfg)
     elif mode == "Impact":
         return ParticleCloudImpact(cfg)
     else:
